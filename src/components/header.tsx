@@ -37,16 +37,12 @@ export default function Header() {
           <ul className="flex items-center gap-6">
             {navLinks.map((link) => (
               <li key={link.name}>
-                <Link href={link.href} className={`${path === link.href ? 'text-zinc-950' : 'text-zinc-500'} hover:text-zinc-950 transition-colors`}>
+                <Link href={link.href} className={`${path === link.href ? 'text-orange-600 font-semibold' : 'text-zinc-600'} hover:text-orange-600 transition-colors`}>
                   {link.name}
                 </Link>
               </li>
             ))}
-            <li>
-                <Link href="/signup" className="bg-zinc-900 text-white px-4 py-2 rounded-md hover:bg-zinc-700 transition-colors">
-                  Sign Up
-                </Link>
-            </li>
+            
           </ul>
         </nav>
       </div>

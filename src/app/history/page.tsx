@@ -68,7 +68,7 @@ export default function History() {
                 href={event.wikipediaLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-800 transition-colors"
+                className="text-orange-600 hover:text-orange-800 transition-colors"
               >
                 Read more on Wikipedia
               </Link>
