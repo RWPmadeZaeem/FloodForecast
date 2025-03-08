@@ -1,4 +1,6 @@
 import { FaChartLine, FaDatabase, FaExclamationTriangle } from 'react-icons/fa'; // Importing icons from FontAwesome
+import Link from 'next/link'; // Importing Link from Next.js for navigation
+
 export default function Home() {
   return (
     <main className="min-h-screen">
@@ -14,12 +16,12 @@ export default function Home() {
                 Leveraging advanced analytics and historical data to protect vulnerable communities from flood disasters.
               </p>
               <div className="flex gap-4">
-                <a href="/predictor" className="bg-orange-600 text-white px-6 py-3 rounded-lg hover:bg-orange-700 transition-colors">
+                <Link href="/predictor" className="bg-orange-600 text-white px-6 py-3 rounded-lg hover:bg-orange-700 transition-colors">
                   Try Predictor
-                </a>
-                <a href="/history" className=" text-white bg-zinc-900 px-6 py-3 rounded-lg hover:bg-zinc-800 transition-colors shadow-lg">
+                </Link>
+                <Link href="/history" className=" text-white bg-zinc-900 px-6 py-3 rounded-lg hover:bg-zinc-800 transition-colors shadow-lg">
                   View History
-                </a>
+                </Link>
               </div>
             </div>
             
@@ -73,9 +75,9 @@ export default function Home() {
         <div className="container mx-auto px-6 text-center">
           <h2 className="text-3xl font-bold mb-6">Ready to Get Started?</h2>
           <p className="text-lg mb-8">Join us in protecting communities through data-driven flood prediction.</p>
-          <a href="/login" className="bg-white text-zinc-900 px-8 py-3 rounded-lg hover:bg-zinc-100 transition-colors">
+          <Link href="/signup" className="bg-white text-zinc-900 px-8 py-3 rounded-lg hover:bg-zinc-100 transition-colors">
             Sign Up Now
-          </a>
+          </Link>
         </div>
       </section>
     </main>
