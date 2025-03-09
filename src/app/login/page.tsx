@@ -1,61 +1,33 @@
 "use client";
 import { useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/context/auth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { FaEnvelope, FaPhone, FaLock } from "react-icons/fa";
+import { FaEnvelope, FaLock } from "react-icons/fa";
 
-export default function Signup() {
+export default function Login() {
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState("error"); // "error" or "success"
+  const [error, setError] = useState("");
   const router = useRouter();
+  const { signIn } = useAuth();
 
-  const handleSignup = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setMessage("");
+    setError("");
 
     try {
-      // 1. Sign up the user with Supabase Auth
-      const { data, error } = await supabase.auth.signUp({ 
-        email, 
-        password,
-        options: {
-          data: {
-            phone: phone // Store phone in user metadata for easy access
-          }
-        }
-      });
-
+      const { error } = await signIn({ email, password });
+      
       if (error) throw error;
-
-      // 2. Store additional user info in your custom users table
-      const { error: dbError } = await supabase
-        .from("users")
-        .insert([{ // Use the auth user ID as the primary key
-          email, 
-          phone 
-        }]);
-
-      if (dbError) throw dbError;
-
-      // 3. Success message
-      setMessageType("success");
-      setMessage("Signup successful! Redirecting to home page...");
       
-      // 4. Redirect to home page after short delay
-      setTimeout(() => {
-        router.push("/");
-      }, 1500);
-      
+      // Redirect to home page
+      router.push("/");
     } catch (error) {
-      console.error("Signup error:", error);
-      setMessageType("error");
-      setMessage(error.message);
+      console.error("Login error:", error);
+      setError(error.message);
     } finally {
       setLoading(false);
     }
@@ -65,13 +37,13 @@ export default function Signup() {
     <div className="min-h-[calc(100vh-250px)] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-zinc-100">
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow-lg">
         <div>
-          <h2 className="text-center text-3xl font-bold text-zinc-900">Create your account</h2>
+          <h2 className="text-center text-3xl font-bold text-zinc-900">Log in to your account</h2>
           <p className="mt-2 text-center text-sm text-zinc-600">
-            Join FloodForecast to receive prediction reports
+            Access flood predictions and reports
           </p>
         </div>
         
-        <form className="mt-8 space-y-6" onSubmit={handleSignup}>
+        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
           <div className="rounded-md shadow-sm space-y-4">
             <div>
               <label htmlFor="email" className="sr-only">Email address</label>
@@ -94,26 +66,6 @@ export default function Signup() {
             </div>
             
             <div>
-              <label htmlFor="phone" className="sr-only">Phone number</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FaPhone className="h-5 w-5 text-zinc-400" />
-                </div>
-                <input
-                  id="phone"
-                  name="phone"
-                  type="tel"
-                  autoComplete="tel"
-                  required
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="appearance-none rounded-lg relative block w-full pl-10 py-3 px-3 border border-zinc-300 placeholder-zinc-500 text-zinc-900 focus:outline-none focus:ring-orange-500 focus:border-orange-500"
-                  placeholder="Phone number (e.g. +923001234567)"
-                />
-              </div>
-            </div>
-            
-            <div>
               <label htmlFor="password" className="sr-only">Password</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -123,25 +75,42 @@ export default function Signup() {
                   id="password"
                   name="password"
                   type="password"
-                  autoComplete="new-password"
+                  autoComplete="current-password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="appearance-none rounded-lg relative block w-full pl-10 py-3 px-3 border border-zinc-300 placeholder-zinc-500 text-zinc-900 focus:outline-none focus:ring-orange-500 focus:border-orange-500"
-                  placeholder="Password (min 6 characters)"
-                  minLength={6}
+                  placeholder="Password"
                 />
               </div>
             </div>
           </div>
 
-          {message && (
-            <div className={`p-3 rounded-lg ${
-              messageType === "error" ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
-            }`}>
-              {message}
+          {error && (
+            <div className="p-3 rounded-lg bg-red-100 text-red-700">
+              {error}
             </div>
           )}
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <input
+                id="remember-me"
+                name="remember-me"
+                type="checkbox"
+                className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-zinc-300 rounded"
+              />
+              <label htmlFor="remember-me" className="ml-2 block text-sm text-zinc-900">
+                Remember me
+              </label>
+            </div>
+
+            <div className="text-sm">
+              <Link href="/forgot-password" className="font-medium text-orange-600 hover:text-orange-500">
+                Forgot your password?
+              </Link>
+            </div>
+          </div>
 
           <div>
             <button
@@ -149,15 +118,15 @@ export default function Signup() {
               disabled={loading}
               className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 disabled:bg-orange-400"
             >
-              {loading ? "Signing up..." : "Sign up"}
+              {loading ? "Logging in..." : "Log in"}
             </button>
           </div>
           
           <div className="text-center text-sm">
             <p className="text-zinc-600">
-              Already have an account?{" "}
-              <Link href="/login" className="font-medium text-orange-600 hover:text-orange-500">
-                Log in
+              Don&apos;t have an account?{" "}
+              <Link href="/signup" className="font-medium text-orange-600 hover:text-orange-500">
+                Sign up
               </Link>
             </p>
           </div>
