@@ -23,7 +23,7 @@ export default function Header() {
   };
 
   return (
-    <header className="bg-zinc-100 text-black py-4 shadow-md sticky top-0 z-10">
+    <header className="bg-slate-50 text-black py-4 shadow-md sticky top-0 z-50">
       <div className="container mx-auto px-6 flex justify-between items-center">
         <Link href="/">
           <Image src="/logoFlood.png" alt="Logo" width={180} height={180} />

@@ -23,7 +23,10 @@ export default function RootLayout({
         {/* Wrap the entire app with AuthProvider */}
         <AuthProvider>
           <Header />
-          {children}
+          <main className="relative z-0">
+            {children}
+          </main>
+          
           <Footer />
         </AuthProvider>
       </body>

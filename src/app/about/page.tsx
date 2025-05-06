@@ -1,7 +1,6 @@
 'use client';
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { motion } from "framer-motion";
 
@@ -53,10 +52,10 @@ export default function AboutPage() {
         >
           <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle>Real-Time Data</CardTitle>
+              <CardTitle>Historical Data</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-gray-600">Our system continuously monitors river discharge levels and weather patterns.</p>
+              <p className="text-gray-600">Our system continuously monitors river discharge levels and weather patterns</p>
             </CardContent>
           </Card>
         </motion.div>

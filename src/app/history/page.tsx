@@ -1,3 +1,6 @@
+'use client';
+
+import { motion } from "framer-motion";
 import Link from "next/link";
 
 interface FloodEvent {
@@ -52,33 +55,97 @@ const floodEvents: FloodEvent[] = [
 export default function History() {
   return (
     <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold text-center mb-10">Major Floods in Pakistan&apos;s History</h1>
+      <motion.h1 
+        className="text-3xl font-bold text-center mb-10"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        Major Floods in Pakistan&apos;s History
+      </motion.h1>
+
       <div className="relative w-full max-w-4xl mx-auto">
-        {/* Timeline Line */}
-        <div className="absolute left-1/2 w-1 bg-gray-300 h-full transform -translate-x-1/2"></div>
+        {/* Animated Timeline Line */}
+        <motion.div 
+          className="absolute left-1/2 w-1 bg-gray-300 h-full transform -translate-x-1/2"
+          initial={{ scaleY: 0 }}
+          animate={{ scaleY: 1 }}
+          transition={{ duration: 1.5, ease: "easeInOut" }}
+        />
 
         {floodEvents.map((event, index) => (
-          <div key={event.year} className="relative flex items-center mb-10">
-            {/* Year on the Opposite Side */}
-            <div className={`absolute ${index % 2 === 0 ? "left-[55%]" : "right-[55%]"} transform -translate-y-1/2`}>
+          <motion.div 
+            key={event.year}
+            className="relative flex items-center mb-10"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: index * 0.2 }}
+          >
+            {/* Animated Year */}
+            <motion.div
+              className={`absolute ${index % 2 === 0 ? "left-[55%]" : "right-[55%]"} transform -translate-y-1/2`}
+              initial={{ x: index % 2 === 0 ? -50 : 50, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              transition={{ delay: index * 0.2 + 0.2, duration: 0.5 }}
+            >
               <span className="text-3xl font-bold text-gray-800">{event.year}</span>
-            </div>
+            </motion.div>
 
-            {/* Circle on the Timeline */}
-            <div className="w-6 h-6 bg-orange-500 rounded-full absolute left-1/2 transform -translate-x-1/2"></div>
+            {/* Animated Circle */}
+            <motion.div
+              className="w-6 h-6 bg-orange-500 rounded-full absolute left-1/2 transform -translate-x-[10px]"
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: index * 0.2 + 0.1, type: "spring" }}
+            />
 
-            {/* Event Card */}
-            <div className={`w-[calc(50%-2rem)] bg-white border border-gray-300 rounded-lg shadow-lg p-6 relative ${index % 2 === 0 ? "mr-auto" : "ml-auto"}`}>
-              <img src={event.imageUrl} alt={event.name} className="w-full h-48 object-cover rounded-lg shadow-md mb-4" />
+            {/* Animated Event Card */}
+            <motion.div
+              className={`w-[calc(50%-2rem)] bg-white border border-gray-300 rounded-lg shadow-lg p-6 relative ${
+                index % 2 === 0 ? "mr-auto" : "ml-auto"
+              }`}
+              initial={{ 
+                opacity: 0,
+                x: index % 2 === 0 ? -50 : 50,
+                scale: 0.95
+              }}
+              animate={{ 
+                opacity: 1,
+                x: 0,
+                scale: 1
+              }}
+              transition={{ 
+                delay: index * 0.2 + 0.3,
+                type: "spring",
+                stiffness: 100
+              }}
+            >
+              <motion.img
+                src={event.imageUrl}
+                alt={event.name}
+                className="w-full h-48 object-cover rounded-lg shadow-md mb-4"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: index * 0.2 + 0.4 }}
+              />
               <h2 className="text-xl font-semibold text-black">{event.name}</h2>
               <p className="text-gray-600 mt-1">{event.summary}</p>
-              <p className="mt-2 text-sm text-black"><strong>Lives lost:</strong> {event.livesLost.toLocaleString()}</p>
-              <p className="text-sm text-black"><strong>Estimated damage:</strong> {event.damageCost}</p>
-              <Link href={event.wikipediaLink} target="_blank" rel="noopener noreferrer" className="block mt-2 text-orange-600 hover:text-orange-800 transition-colors">
+              <p className="mt-2 text-sm text-black">
+                <strong>Lives lost:</strong> {event.livesLost.toLocaleString()}
+              </p>
+              <p className="text-sm text-black">
+                <strong>Estimated damage:</strong> {event.damageCost}
+              </p>
+              <Link
+                href={event.wikipediaLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block mt-2 text-orange-600 hover:text-orange-800 transition-colors"
+              >
                 Read more
               </Link>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         ))}
       </div>
     </div>
