@@ -1,214 +1,178 @@
 "use client"
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { use } from 'react';
+import { useEffect, useState } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-// Import this when your API is ready
-// import { fetchCellDetails } from '@/lib/api';
+interface DailyRisk {
+  probability: number | null;
+  risk: string;
+}
 
-export default function CellDetailPage({ params }) {
-  const { cellId } = use(params);
-  const [cellData, setCellData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+interface GridCellProperties {
+  id: string;
+  risk: string;
+  prediction: number | null;
+  risk_by_day: {
+    [date: string]: DailyRisk;
+  };
+  rainfall?: number;
+  population?: number;
+  elevation?: number;
+}
+
+const riskColors: Record<string, string> = {
+  'Very High': 'bg-red-600 text-white',
+  'High': 'bg-orange-500 text-white',
+  'Medium': 'bg-yellow-400 text-gray-800',
+  'Low': 'bg-green-500 text-white',
+  'Very Low': 'bg-blue-500 text-white',
+  'None': 'bg-gray-200 text-gray-800',
+};
+
+export default function CellDetailPage() {
+  const params = useParams();
+  const searchParams = useSearchParams();
+
+  const cellId = params.cellId as string;
+  const encodedData = searchParams.get('data');
+
+  const [cellData, setCellData] = useState<GridCellProperties | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadCellData = async () => {
-      try {
-        setLoading(true);
-        
-        // For now, create mock data - replace with actual API call later
-        // const data = await fetchCellDetails(cellId);
-        
-        // Mock data
-        const mockData = {
-          id: cellId,
-          risk: ['High', 'Moderate', 'Low'][Math.floor(Math.random() * 3)],
-          rainfall: Math.round(Math.random() * 100),
-          population: Math.round(Math.random() * 50000),
-          elevation: Math.round(Math.random() * 2000),
-          coordinates: {
-            lat: 30 + (Math.random() - 0.5) * 5,
-            lng: 69 + (Math.random() - 0.5) * 5
-          },
-          prediction: Math.random() > 0.3 ? Number((Math.random() * 100).toFixed(2)) : null,
-          historicalData: [
-            { year: 2020, rainfall: Math.round(Math.random() * 100) },
-            { year: 2021, rainfall: Math.round(Math.random() * 100) },
-            { year: 2022, rainfall: Math.round(Math.random() * 100) },
-            { year: 2023, rainfall: Math.round(Math.random() * 100) },
-            { year: 2024, rainfall: Math.round(Math.random() * 100) }
-          ]
-        };
-        
-        setCellData(mockData);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error loading cell data:', err);
-        setError('Failed to load cell data. Please try again later.');
-        setLoading(false);
-      }
-    };
-    
-    loadCellData();
-  }, [cellId]);
-
-  const getRiskColorClass = (risk) => {
-    switch (risk) {
-      case 'High': return 'bg-red-600';
-      case 'Moderate': return 'bg-orange-600';
-      case 'Low': return 'bg-green-600';
-      default: return 'bg-slate-400';
+    if (!encodedData) {
+      setError('No data provided in URL.');
+      return;
     }
-  };
-  
-  if (loading) {
+
+    try {
+      const parsed = JSON.parse(decodeURIComponent(encodedData));
+      // Randomize values if they're not provided
+      const randomizedData = {
+        ...parsed.properties,
+        rainfall: parsed.properties.rainfall ?? Math.floor(Math.random() * 300),
+        population: parsed.properties.population ?? Math.floor(Math.random() * 5000),
+        elevation: parsed.properties.elevation ?? Math.floor(Math.random() * 1000),
+      };
+      setCellData(randomizedData);
+    } catch (err) {
+      console.error('Failed to parse cell data:', err);
+      setError('Invalid or corrupted data in URL.');
+    }
+  }, [encodedData]);
+
+  if (error) {
     return (
-      <div className="flex items-center justify-center h-screen bg-slate-50">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-2"></div>
-          <p className="text-slate-700">Loading cell data...</p>
-        </div>
+      <div className="p-8">
+        <h1 className="text-2xl font-bold text-red-600 mb-4">Error</h1>
+        <p>{error}</p>
+        <Link href="/predictor" className="text-blue-600 underline mt-4 inline-block">
+          ← Back to Map
+        </Link>
       </div>
     );
   }
 
-  if (error) {
+  if (!cellData) {
     return (
-      <div className="flex items-center justify-center h-screen bg-slate-50">
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-md">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-red-500" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm text-red-700">{error}</p>
-            </div>
-          </div>
-        </div>
+      <div className="p-8">
+        <p>Loading cell details...</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-slate-50 min-h-screen">
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-          <div>
-            <Link href="/predictor" className="text-orange-600 hover:text-blue-800 flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
-              </svg>
-              Back to Map
-            </Link>
-            <h1 className="text-xl font-bold text-gray-900 mt-2">Cell {cellId} Details</h1>
-          </div>
-          
-          {cellData && (
-            <div className={`px-4 py-1 rounded-full ${getRiskColorClass(cellData.risk)} text-white flex items-center`}>
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-              <span className="font-medium">{cellData.risk} Risk</span>
-            </div>
-          )}
+    <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-md">
+      <h1 className="text-3xl font-bold mb-6 text-gray-800">Cell {cellData.id} Details</h1>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
+          <h2 className="text-lg font-semibold text-blue-800">Risk Level</h2>
+          <p className={`mt-2 px-3 py-1 rounded-full text-sm font-medium w-fit ${riskColors[cellData.risk]}`}>
+            {cellData.risk}
+          </p>
         </div>
-      </header>
-      
-      <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-        {cellData && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Main info card */}
-            <div className="bg-white shadow rounded-lg overflow-hidden col-span-2">
-              <div className="px-6 py-5 border-b border-gray-400">
-                <h3 className="text-lg font-medium text-gray-900">Cell Information</h3>
-              </div>
-              <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="bg-slate-50 p-4 rounded">
-                    <div className="text-sm text-slate-500 uppercase font-medium">Coordinates</div>
-                    <div className="text-lg font-semibold text-slate-800">
-                      {cellData.coordinates.lat.toFixed(4)}, {cellData.coordinates.lng.toFixed(4)}
-                    </div>
-                  </div>
-                  
-                  <div className="bg-slate-50 p-4 rounded">
-                    <div className="text-sm text-slate-500 uppercase font-medium">Elevation</div>
-                    <div className="text-lg font-semibold text-slate-800">{cellData.elevation} meters</div>
-                  </div>
-                  
-                  <div className="bg-slate-50 p-4 rounded">
-                    <div className="text-sm text-slate-500 uppercase font-medium">Rainfall</div>
-                    <div className="text-lg font-semibold text-slate-800">{cellData.rainfall} mm</div>
-                  </div>
-                  
-                  <div className="bg-slate-50 p-4 rounded">
-                    <div className="text-sm text-slate-500 uppercase font-medium">Population</div>
-                    <div className="text-lg font-semibold text-slate-800">{cellData.population.toLocaleString()}</div>
-                  </div>
-                </div>
-                
-                {/* Placeholder for future charts/data */}
-                <div className="mt-6">
-                  <h4 className="text-md font-medium text-gray-900 mb-4">Historical Rainfall Data</h4>
-                  <div className="bg-slate-50 p-4 rounded h-64 flex items-center justify-center">
-                    <p className="text-slate-500">
-                      Chart will be displayed here when API integration is complete.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Side panel */}
-            <div className="space-y-6">
-              {/* Risk assessment card */}
-              <div className="bg-white shadow rounded-lg overflow-hidden">
-                <div className="px-6 py-5 border-b border-gray-400">
-                  <h3 className="text-lg font-medium text-gray-900">Risk Assessment</h3>
-                </div>
-                <div className="p-6">
-                  <div className={`mb-4 p-3 rounded-lg border-gray-300 ${
-                    cellData.risk === 'High' ? 'bg-red-50 text-red-800' :
-                    cellData.risk === 'Moderate' ? 'bg-orange-50 text-orange-800' :
-                    'bg-green-50 text-green-800'
-                  }`}>
-                    <div className="font-medium">Risk Level: {cellData.risk}</div>
-                    <div className="text-sm mt-1">
-                      {cellData.risk === 'High' ? 
-                        'Immediate action recommended.' :
-                        cellData.risk === 'Moderate' ? 
-                        'Monitor conditions closely.' :
-                        'Low probability of issues.'
-                      }
-                    </div>
-                  </div>
-                  
-                  <div className="mt-4">
-                    <div className="text-sm text-slate-500 uppercase font-medium mb-2">Flood Prediction</div>
-                    <div className="text-2xl font-bold text-slate-800">
-                      {cellData.prediction !== null ? 
-                        `${cellData.prediction}%` : 
-                        'Not available'
-                      }
-                    </div>
-                    <div className="text-sm text-slate-500 mt-1">
-                      Likelihood of flooding in next 30 days
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Actions card */}
-              
-            </div>
+        <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg border border-green-200">
+          <h2 className="text-lg font-semibold text-green-800">Rainfall</h2>
+          <p className="mt-2 text-2xl font-bold text-gray-700">
+            {cellData.rainfall !== undefined ? `${cellData.rainfall} mm` : 'N/A'}
+          </p>
+        </div>
+        <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg border border-purple-200">
+          <h2 className="text-lg font-semibold text-purple-800">Population</h2>
+          <p className="mt-2 text-2xl font-bold text-gray-700">
+            {cellData.population !== undefined ? cellData.population.toLocaleString() : 'N/A'}
+          </p>
+        </div>
+        <div className="bg-gradient-to-br from-amber-50 to-amber-100 p-4 rounded-lg border border-amber-200">
+          <h2 className="text-lg font-semibold text-amber-800">Elevation</h2>
+          <p className="mt-2 text-2xl font-bold text-gray-700">
+            {cellData.elevation !== undefined ? `${cellData.elevation} m` : 'N/A'}
+          </p>
+        </div>
+      </div>
+
+      <div className="mb-8">
+        <h2 className="text-2xl font-bold mb-4 text-gray-800">Daily Risk Forecast</h2>
+        {cellData.risk_by_day && Object.keys(cellData.risk_by_day).length > 0 ? (
+          <div className="overflow-hidden rounded-lg border border-gray-200 shadow-sm">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Risk Level</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Probability</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visualization</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {Object.entries(cellData.risk_by_day)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([date, daily]) => (
+                    <tr key={date} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${riskColors[daily.risk]}`}>
+                          {daily.risk}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {daily.probability !== null ? `${(daily.probability * 100).toFixed(1)}%` : 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {daily.probability !== null && (
+                          <div className="w-full bg-gray-200 rounded-full h-2.5">
+                            <div 
+                              className={`h-2.5 rounded-full ${
+                                daily.risk.includes('High') ? 'bg-red-600' : 
+                                daily.risk.includes('Medium') ? 'bg-yellow-400' : 'bg-green-500'
+                              }`} 
+                              style={{ width: `${daily.probability * 100}%` }}
+                            ></div>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 text-center">
+            <p className="text-gray-500">No daily risk data available.</p>
           </div>
         )}
-      </main>
+      </div>
+
+      <Link 
+        href="/predictor" 
+        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+      >
+        ← Back to Map
+      </Link>
     </div>
   );
 }

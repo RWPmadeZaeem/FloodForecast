@@ -9,11 +9,19 @@ import 'leaflet/dist/leaflet.css';
 import * as turf from '@turf/turf';
 import Legend from './legend';
 
-// Define TypeScript interfaces
+// Define TypeScript interfaces for our new data structure
+interface DailyRisk {
+  probability: number | null;
+  risk: string;
+}
+
 interface GridCellProperties {
   id: string;
   risk: string;
   prediction: number | null;
+  risk_by_day: {
+    [date: string]: DailyRisk;
+  };
   rainfall?: number;
   population?: number;
   elevation?: number;
@@ -65,65 +73,69 @@ const Map: React.FC = () => {
   const router = useRouter();
   const [gridData, setGridData] = useState<GridFeatureCollection | null>(null);
   const [provincesData, setProvincesData] = useState<ProvinceFeatureCollection | null>(null);
-  const [selectedCell, setSelectedCell] = useState<GridCellProperties | null>(null);
+  const [selectedCell, setSelectedCell] = useState<GridFeature | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [hoveredCellId, setHoveredCellId] = useState<string | null>(null);
+  
+  // New state for time-based visualization
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [dateIndex, setDateIndex] = useState<number>(0);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
   // Load data
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-    
+  
         const [gridResponse, provincesResponse] = await Promise.all([
-          fetch('/pakistan-grid.geojson'),
+          fetch('/pakistan-grid-with-predictions.geojson'),
           fetch('/geoBoundaries-PAK-ADM1.geojson'),
         ]);
-    
+  
         if (!gridResponse.ok) throw new Error('Failed to load grid data');
         if (!provincesResponse.ok) throw new Error('Failed to load province data');
-    
+  
         const gridJson = await gridResponse.json();
         const provincesJson = await provincesResponse.json();
-    
+  
+        // Combine all province geometries into one unified Pakistan boundary
         const multiFeature = turf.combine(provincesJson); // combine into one MultiPolygon
         const [first, ...rest] = multiFeature.features;
-
+  
         const pakistanBoundary = rest.reduce(
           (acc, curr) => turf.union(acc, curr),
           first
         );
+  
         // Filter grid cells that intersect with Pakistan boundary
         const filteredFeatures = gridJson.features.filter((feature: GridFeature) =>
           turf.booleanIntersects(turf.polygon(feature.geometry.coordinates), pakistanBoundary)
         );
-    
-        // Add random data to filtered features
-        // Add random data to filtered features
-        const assignRandomRisk = () => {
-          const rand = Math.random();
-          if (rand < 0.1) return 'High';      // 10%
-          else if (rand < 0.35) return 'Moderate'; // 25%
-          else return 'Low';                  // 65%
+  
+        const clippedGridJson: GridFeatureCollection = {
+          ...gridJson,
+          features: filteredFeatures,
         };
-        const enhancedGridData: GridFeatureCollection = {
-          type: 'FeatureCollection',
-          features: filteredFeatures.map((feature: GridFeature) => ({
-            ...feature,
-            properties: {
-              ...feature.properties,
-              risk: assignRandomRisk(),
-              rainfall: Math.round(Math.random() * 100),
-              population: Math.round(Math.random() * 50000),
-              elevation: Math.round(Math.random() * 2000),
+  
+        // Extract all available dates from the first cell with risk_by_day data
+        if (clippedGridJson.features.length > 0) {
+          const firstCellWithDates = clippedGridJson.features.find(
+            (feature) => feature.properties?.risk_by_day && Object.keys(feature.properties.risk_by_day).length > 0
+          );
+          
+          if (firstCellWithDates && firstCellWithDates.properties.risk_by_day) {
+            const dates = Object.keys(firstCellWithDates.properties.risk_by_day).sort();
+            setAvailableDates(dates);
+            if (dates.length > 0) {
+              setSelectedDate(dates[0]);
             }
-          }))
-        };
+          }
+        }
         
-
-    
-        setGridData(enhancedGridData);
+        setGridData(clippedGridJson);
         setProvincesData(provincesJson);
         setLoading(false);
       } catch (error) {
@@ -132,13 +144,41 @@ const Map: React.FC = () => {
         setLoading(false);
       }
     };
-    
+  
     fetchData();
   }, []);
+
+  // Animation loop for time-based visualization
+  useEffect(() => {
+    let animationTimer: NodeJS.Timeout | null = null;
+    
+    if (isPlaying && availableDates.length > 0) {
+      animationTimer = setInterval(() => {
+        setDateIndex((prevIndex) => {
+          const nextIndex = (prevIndex + 1) % availableDates.length;
+          setSelectedDate(availableDates[nextIndex]);
+          return nextIndex;
+        });
+      }, 1000); // Change date every 1 second
+    }
+    
+    return () => {
+      if (animationTimer) {
+        clearInterval(animationTimer);
+      }
+    };
+  }, [isPlaying, availableDates]);
+
+  // Update selected date when date index changes
+  useEffect(() => {
+    if (availableDates.length > 0) {
+      setSelectedDate(availableDates[dateIndex]);
+    }
+  }, [dateIndex, availableDates]);
   
   // Style functions for GeoJSON layers
   const provinceStyle = {
-    color: '#E97451', // Blue border for provinces
+    color: '#E97451',
     weight: 2,
     opacity: 0.7,
     fillOpacity: 0.02,
@@ -147,103 +187,174 @@ const Map: React.FC = () => {
   };
   
   const getGridCellStyle = (feature: GridFeature) => {
-    const risk = feature.properties?.risk;
+    // If we have a selected date, use that day's risk level
+    let risk = feature.properties?.risk; // Default to overall risk
+    
+    if (selectedDate && feature.properties?.risk_by_day && feature.properties.risk_by_day[selectedDate]) {
+      risk = feature.properties.risk_by_day[selectedDate].risk;
+    }
+    
+    // SWAP MODERATE AND LOW RISK LEVELS
+    if (risk === 'Medium') risk = 'Low';
+    else if (risk === 'Low') risk = 'Medium';
+    
     const isHovered = hoveredCellId === feature.properties.id;
-    const isSelected = selectedCell?.id === feature.properties.id;
+    const isSelected = selectedCell?.properties.id === feature.properties.id;
     
     // Default style
     const baseStyle = {
       weight: isHovered || isSelected ? 2 : 0.5,
       opacity: isHovered || isSelected ? 1 : 0.7,
-      color: isHovered || isSelected ? '#2563eb' : '#9ca3af', // Blue border when hovered/selected
+      color: isHovered || isSelected ? '#2563eb' : '#9ca3af',
       fillOpacity: isHovered ? 0.75 : 0.65
     };
-
-    // Risk-based colors with improved palette
-    if (risk) {
-      if (risk === 'High') {
+  
+    // Risk-based colors (after swap)
+    switch (risk) {
+      case 'Very High':
         return {
           ...baseStyle,
-          fillColor: '#dc2626', // Deeper red
+          fillColor: '#7f1d1d', // Very dark red
+          fillOpacity: isHovered ? 0.9 : 0.8
+        };
+      case 'High':
+        return {
+          ...baseStyle,
+          fillColor: '#dc2626', // Red
           fillOpacity: isHovered ? 0.85 : 0.7
         };
-      } else if (risk === 'Moderate') {
+      case 'Medium': // Now shows what was previously Low risk
         return {
           ...baseStyle,
-          fillColor: '#ea580c', // Deeper orange
+          fillColor: '#ea580c', // Green (previously Low risk color)
           fillOpacity: isHovered ? 0.8 : 0.65
         };
-      } else if (risk === 'Low') {
+      case 'Low': // Now shows what was previously Medium risk
         return {
           ...baseStyle,
-          fillColor: '#16a34a', // Deeper green
+          fillColor: '#16a34a', // Orange (previously Medium risk color)
           fillOpacity: isHovered ? 0.75 : 0.6
         };
-      }
+      default:
+        return {
+          ...baseStyle,
+          fillColor: '#94a3b8', // Gray
+          fillOpacity: isHovered ? 0.5 : 0.2
+        };
     }
-    
-    // Default for unknown risk
-    return {
-      ...baseStyle,
-      fillColor: '#94a3b8', // Slate gray
-      fillOpacity: isHovered ? 0.5 : 0.2
-    };
   };
   
   const onEachGridCell = (feature: GridFeature, layer: any) => {
-    const tooltipContent = `
-      <div class="custom-tooltip">
-        <div class="tooltip-header">${feature.properties.id}</div>
-        <div class="tooltip-risk">
-          <span class="risk-indicator ${getRiskClass(feature.properties.risk)}"></span>
-          ${feature.properties.risk || 'Unknown'} Risk
-        </div>
-        <div class="tooltip-data">
-          <div>Rainfall: ${feature.properties.rainfall}mm</div>
-          <div>Population: ${feature.properties.population?.toLocaleString()}</div>
-        </div>
-      </div>
-    `;
-    
-    layer.bindTooltip(tooltipContent, {
-      permanent: false,
-      direction: 'top',
-      className: 'custom-leaflet-tooltip'
-    });
-    
     layer.on({
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       mouseover: (e: LeafletMouseEvent) => {
         setHoveredCellId(feature.properties.id);
+        
+        // Get date-specific risk if available
+        let risk = feature.properties.risk;
+        let probability = feature.properties.prediction;
+        
+        if (selectedDate && feature.properties.risk_by_day && feature.properties.risk_by_day[selectedDate]) {
+          risk = feature.properties.risk_by_day[selectedDate].risk;
+          probability = feature.properties.risk_by_day[selectedDate].probability;
+        }
+        
+        const tooltipContent = `
+          <div class="custom-tooltip">
+            <div class="tooltip-header">${feature.properties.id}</div>
+            <div class="tooltip-date">${selectedDate || 'Overall'}</div>
+            <div class="tooltip-risk">
+              <span class="risk-indicator ${getRiskClass(risk)}"></span>
+              ${risk || 'Unknown'} Risk
+            </div>
+            ${probability !== null ? `<div class="tooltip-probability">Probability: ${(probability * 100).toFixed(1)}%</div>` : ''}
+            <div class="tooltip-data">
+              ${feature.properties.rainfall ? `<div>Rainfall: ${feature.properties.rainfall}mm</div>` : ''}
+              ${feature.properties.population ? `<div>Population: ${feature.properties.population?.toLocaleString()}</div>` : ''}
+            </div>
+          </div>
+        `;
+        
+        layer.bindTooltip(tooltipContent, {
+          permanent: false,
+          direction: 'top',
+          className: 'custom-leaflet-tooltip'
+        }).openTooltip();
       },
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       mouseout: (e: LeafletMouseEvent) => {
         setHoveredCellId(null);
+        layer.closeTooltip();
       },
       click: (e: LeafletMouseEvent) => {
-        setSelectedCell(feature.properties);
+        setSelectedCell(feature);
         e.originalEvent?.stopPropagation();
       }
     });
   };
 
   const getRiskClass = (risk?: string) => {
+    // Swap Medium and Low risk classes
+    if (risk === 'Medium') risk = 'Low';
+    else if (risk === 'Low') risk = 'Medium';
+    
     switch (risk) {
+      case 'Very High': return 'risk-very-high';
       case 'High': return 'risk-high';
-      case 'Moderate': return 'risk-moderate';
+      case 'Medium': return 'risk-medium';
       case 'Low': return 'risk-low';
       default: return 'risk-unknown';
     }
   };
 
-  // Navigate to cell detail page
-  const navigateToCellDetail = (cellId: string) => {
-    router.push(`/cell/${cellId}`);
+  // Navigate to cell detail page with the selected cell data
+  const navigateToCellDetail = () => {
+    if (!selectedCell) return;
+    
+    // Prepare data to be passed to the detailed view
+    const cellData = {
+      id: selectedCell.properties.id,
+      properties: selectedCell.properties,
+      geometry: selectedCell.geometry,
+      // Include currently selected date if relevant
+      selectedDate: selectedDate || null
+    };
+    
+    // Encode the data as a URI component
+    const encodedData = encodeURIComponent(JSON.stringify(cellData));
+    
+    // Navigate to the cell page with the encoded data
+    router.push(`/cell/${selectedCell.properties.id}?data=${encodedData}`);
   };
 
   // Handle map click to clear selection
   const handleMapClick = () => {
     setSelectedCell(null);
+  };
+
+  // Handle date selector change
+  const handleDateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newDate = e.target.value;
+    setSelectedDate(newDate);
+    
+    // Update date index to match
+    const newIndex = availableDates.indexOf(newDate);
+    if (newIndex !== -1) {
+      setDateIndex(newIndex);
+    }
+  };
+
+  // Handle play/pause for time animation
+  const togglePlay = () => {
+    setIsPlaying(!isPlaying);
+  };
+
+  // Format date for display
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      month: 'short', 
+      day: 'numeric' 
+    });
   };
 
   // Fix for Next.js hydration issues with Leaflet
@@ -301,6 +412,64 @@ const Map: React.FC = () => {
   return (
     <div className="relative w-full h-[calc(100vh-80px)] z-0 bg-slate-50">
       {/* Title & Controls Bar */}
+      <div className="absolute top-4 left-4 right-4 z-[500] flex items-center justify-between bg-white shadow-md rounded-lg p-3">
+        <h2 className="text-xl font-bold text-slate-800">Pakistan Flood Risk Forecast</h2>
+        
+        <div className="flex items-center space-x-4 z-[500]">
+          {availableDates.length > 0 && (
+            <>
+              {/* Date text indicator */}
+              <div className="text-slate-700 font-medium min-w-40">
+                {selectedDate ? formatDate(selectedDate) : 'Select date'}
+              </div>
+            
+              {/* Play/Pause Button */}
+              <button 
+                onClick={togglePlay} 
+                className="bg-slate-700 hover:bg-slate-800 text-white rounded-full p-2 transition-colors"
+              >
+                {isPlaying ? (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </button>
+              
+              {/* Date Slider */}
+              <input 
+                type="range" 
+                min={0} 
+                max={availableDates.length - 1} 
+                value={dateIndex} 
+                onChange={(e) => {
+                  const newIndex = parseInt(e.target.value);
+                  setDateIndex(newIndex);
+                  setSelectedDate(availableDates[newIndex]);
+                }}
+                className="w-48 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+              />
+              
+              {/* Date Selector */}
+              <select 
+                value={selectedDate} 
+                onChange={handleDateChange}
+                className="bg-white border border-slate-300 text-slate-700 rounded px-2 py-1"
+              >
+                {availableDates.map((date) => (
+                  <option key={date} value={date}>
+                    {formatDate(date)}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+        </div>
+      </div>
+
       <div className="absolute top-20 right-6 z-[500]">
         <Legend />
       </div>
@@ -349,6 +518,7 @@ const Map: React.FC = () => {
             data={gridData} 
             style={getGridCellStyle}
             onEachFeature={onEachGridCell}
+            key={selectedDate} // Force re-render when date changes
           />
         )}
         
@@ -357,9 +527,9 @@ const Map: React.FC = () => {
       
       {/* Improved info panel for clicked cell */}
       {selectedCell && (
-        <div className="absolute bottom-6 left-6 bg-white rounded-lg shadow-xl z-[500] border border-slate-200 w-72 overflow-hidden">
+        <div className="absolute bottom-6 left-6 bg-white rounded-lg shadow-xl z-[500] border border-slate-200 w-80 overflow-hidden">
           <div className="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
-            <h3 className="font-bold text-lg">Cell {selectedCell.id}</h3>
+            <h3 className="font-bold text-lg">Cell {selectedCell.properties.id}</h3>
             <button
               onClick={() => setSelectedCell(null)}
               className="text-slate-300 hover:text-white transition-colors"
@@ -370,40 +540,107 @@ const Map: React.FC = () => {
             </button>
           </div>
           
-          {/* Risk level banner */}
-          <div className={`px-4 py-2 ${selectedCell.risk === 'High' ? 'bg-red-600' : selectedCell.risk === 'Moderate' ? 'bg-orange-600' : 'bg-green-600'} text-white`}>
-            <div className="flex items-center">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.5a1 1 0 001 1h.5a1 1 0 100-2H11V5zm2 3a1 1 0 10-2 0v3a1 1 0 102 0V8zm-2-6a1 1 0 10-2 0v.5a1 1 0 001 1h.5a1 1 0 100-2H11V2z" clipRule="evenodd" />
-              </svg>
-              <span className="font-medium">{selectedCell.risk || 'Unknown'} Risk Level</span>
+          {/* Risk level banner - use the day-specific risk if available */}
+          {selectedDate && selectedCell.properties.risk_by_day && selectedCell.properties.risk_by_day[selectedDate] ? (
+            <div className={`px-4 py-2 ${
+              selectedCell.properties.risk_by_day[selectedDate].risk === 'Very High' ? 'bg-red-800' :
+              selectedCell.properties.risk_by_day[selectedDate].risk === 'High' ? 'bg-red-600' : 
+              selectedCell.properties.risk_by_day[selectedDate].risk === 'Medium' ? 'bg-green-600' : 
+              'bg-orange-600'} text-white`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.5a1 1 0 001 1h.5a1 1 0 100-2H11V5zm2 3a1 1 0 10-2 0v3a1 1 0 102 0V8zm-2-6a1 1 0 10-2 0v.5a1 1 0 001 1h.5a1 1 0 100-2H11V2z" clipRule="evenodd" />
+                  </svg>
+                  <span className="font-medium">
+                    {selectedCell.properties.risk_by_day[selectedDate].risk || 'Unknown'} Risk Level
+                  </span>
+                </div>
+                <div className="text-sm">
+                  {selectedCell.properties.risk_by_day[selectedDate].probability !== null ? 
+                    `${(selectedCell.properties.risk_by_day[selectedDate].probability! * 100).toFixed(1)}%` : 'N/A'}
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className={`px-4 py-2 ${
+              selectedCell.properties.risk === 'Very High' ? 'bg-red-800' :
+              selectedCell.properties.risk === 'High' ? 'bg-red-600' : 
+              selectedCell.properties.risk === 'Medium' ? 'bg-green-600' : 
+              'bg-orange-600'} text-white`}>
+              <div className="flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.5a1 1 0 001 1h.5a1 1 0 100-2H11V5zm2 3a1 1 0 10-2 0v3a1 1 0 102 0V8zm-2-6a1 1 0 10-2 0v.5a1 1 0 001 1h.5a1 1 0 100-2H11V2z" clipRule="evenodd" />
+                </svg>
+                <span className="font-medium">{selectedCell.properties.risk || 'Unknown'} Risk Level</span>
+              </div>
+            </div>
+          )}
           
           <div className="p-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-slate-50 p-3 rounded">
-                <div className="text-xs text-slate-500 uppercase font-medium">Rainfall</div>
-                <div className="text-lg font-semibold text-slate-800">{selectedCell.rainfall} mm</div>
-              </div>
-              <div className="bg-slate-50 p-3 rounded">
-                <div className="text-xs text-slate-500 uppercase font-medium">Elevation</div>
-                <div className="text-lg font-semibold text-slate-800">{selectedCell.elevation} m</div>
-              </div>
-              <div className="bg-slate-50 p-3 rounded">
-                <div className="text-xs text-slate-500 uppercase font-medium">Population</div>
-                <div className="text-lg font-semibold text-slate-800">{selectedCell.population?.toLocaleString()}</div>
-              </div>
-              <div className="bg-slate-50 p-3 rounded">
-                <div className="text-xs text-slate-500 uppercase font-medium">Prediction</div>
-                <div className="text-lg font-semibold text-slate-800">{selectedCell.prediction || 'N/A'}</div>
-              </div>
+            {/* Basic cell info */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {selectedCell.properties.rainfall !== undefined && (
+                <div className="bg-slate-50 p-3 rounded">
+                  <div className="text-xs text-slate-500 uppercase font-medium">Rainfall</div>
+                  <div className="text-lg font-semibold text-slate-800">{selectedCell.properties.rainfall} mm</div>
+                </div>
+              )}
+              {selectedCell.properties.elevation !== undefined && (
+                <div className="bg-slate-50 p-3 rounded">
+                  <div className="text-xs text-slate-500 uppercase font-medium">Elevation</div>
+                  <div className="text-lg font-semibold text-slate-800">{selectedCell.properties.elevation} m</div>
+                </div>
+              )}
+              {selectedCell.properties.population !== undefined && (
+                <div className="bg-slate-50 p-3 rounded">
+                  <div className="text-xs text-slate-500 uppercase font-medium">Population</div>
+                  <div className="text-lg font-semibold text-slate-800">{selectedCell.properties.population?.toLocaleString()}</div>
+                </div>
+              )}
             </div>
             
+            {/* Forecast risk trend */}
+            {selectedCell.properties.risk_by_day && Object.keys(selectedCell.properties.risk_by_day).length > 0 && (
+              <div className="mt-2">
+                <h4 className="text-md font-semibold text-slate-700 mb-2">Risk Forecast</h4>
+                
+                <div className="text-xs text-slate-500 uppercase font-medium mb-1">Next 7 days</div>
+                <div className="flex space-x-1 mb-4">
+                {Object.keys(selectedCell.properties.risk_by_day)
+  .sort()
+  .slice(0, 7)
+  .map((date) => {
+    let risk = selectedCell.properties.risk_by_day[date].risk;
+    // Swap Medium and Low risk colors
+    if (risk === 'Medium') risk = 'Low';
+    else if (risk === 'Low') risk = 'Medium';
+    
+    const colorClass = 
+      risk === 'Very High' ? 'bg-red-800' :
+      risk === 'High' ? 'bg-red-600' : 
+      risk === 'Medium' ? 'bg-green-500' : // Now green (was Low)
+      risk === 'Low' ? 'bg-orange-500' :  // Now orange (was Medium)
+      'bg-gray-300';
+    
+    return (
+      <div 
+        key={date} 
+        className={`flex-1 h-6 ${colorClass} rounded hover:opacity-90 cursor-pointer`}
+        title={`${formatDate(date)}: ${risk} Risk`}
+        onClick={() => setSelectedDate(date)}
+      />
+    );
+  })}
+                </div>
+              </div>
+            )}
+            
             <button 
-              onClick={() => navigateToCellDetail(selectedCell.id)}
-              className="mt-4 w-full py-2 bg-slate-800 text-white rounded font-medium transition-colors flex items-center justify-center"
+              onClick={navigateToCellDetail}
+              className="mt-2 w-full py-2 bg-slate-800 text-white rounded font-medium transition-colors flex items-center justify-center"
             >
               <span>View Detailed Analysis</span>
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-1" viewBox="0 0 20 20" fill="currentColor">
@@ -413,10 +650,6 @@ const Map: React.FC = () => {
           </div>
         </div>
       )}
-      
-      {/* Improved Legend */}
-      
-
       {/* CSS for custom tooltips and map styling */}
       <style jsx global>{`
         .custom-leaflet-tooltip {
@@ -441,15 +674,27 @@ const Map: React.FC = () => {
         .tooltip-header {
           font-weight: 600;
           font-size: 14px;
-          margin-bottom: 4px;
+          margin-bottom: 2px;
           color: white;
+        }
+        
+        .tooltip-date {
+          font-size: 11px;
+          color: #e2e8f0;
+          margin-bottom: 4px;
         }
         
         .tooltip-risk {
           display: flex;
           align-items: center;
-          margin-bottom: 6px;
+          margin-bottom: 4px;
           font-size: 12px;
+        }
+        
+        .tooltip-probability {
+          font-size: 11px;
+          margin-bottom: 4px;
+          color: #e2e8f0;
         }
         
         .risk-indicator {
@@ -459,22 +704,20 @@ const Map: React.FC = () => {
           border-radius: 50%;
           margin-right: 6px;
         }
-        
-        .risk-high { background-color: #dc2626; }
-        .risk-moderate { background-color: #ea580c; }
-        .risk-low { background-color: #16a34a; }
-        .risk-unknown { background-color: #94a3b8; }
-        
-        .tooltip-data {
+        .risk-very-high { background: #7f1d1d; }
+        .risk-high { background: #dc2626; }
+        .risk-medium { background: #16a34a; } /* Now green (previously Low) */
+        .risk-low { background: #ea580c; }
+        .risk-unknown { background: #9ca3af; }
+
+        .tooltip-data div {
           font-size: 11px;
-          color: #e2e8f0;
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 2px;
+          color: #f1f5f9;
+          margin-bottom: 2px;
         }
-        
+
         .map-tiles {
-          filter: brightness(1.02) contrast(1.05) saturate(0.9);
+          filter: grayscale(30%) contrast(95%);
         }
       `}</style>
     </div>
@@ -482,3 +725,5 @@ const Map: React.FC = () => {
 };
 
 export default Map;
+
+

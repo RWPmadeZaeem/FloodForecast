@@ -40,7 +40,7 @@ export default function Home() {
   return (
     <main className="min-h-screen">
       {/* Hero Section */}
-      <section className="bg-[url('/heroImage.jpg')] bg-cover bg-center flex items-center justify-center h-[60vh] py-20">
+      <section className="bg-[url('/heroImage.jpg')] bg-cover bg-center flex items-center justify-center py-20">
         <div className="container mx-auto px-6">
           <div className="flex flex-col md:flex-row items-center justify-between">
             {isMounted && (
@@ -162,7 +162,7 @@ export default function Home() {
       </section>
 
       {/* Call to Action */}
-      <section className="bg-zinc-800 text-white py-24 h-[40vh]">
+      <section className="bg-zinc-800 text-white py-24">
         <motion.div 
           className="container mx-auto px-6 text-center"
           initial="hidden"
