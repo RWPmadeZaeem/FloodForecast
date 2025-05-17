@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { MapContainer, TileLayer, GeoJSON, useMap, ZoomControl } from 'react-leaflet';
 import { FeatureCollection, Feature, Polygon } from 'geojson';
 import { LeafletMouseEvent } from 'leaflet';
@@ -9,7 +9,7 @@ import 'leaflet/dist/leaflet.css';
 import * as turf from '@turf/turf';
 import Legend from './legend';
 
-// Define TypeScript interfaces for our new data structure
+// Define TypeScript interfaces for our data structure
 interface DailyRisk {
   probability: number | null;
   risk: string;
@@ -25,6 +25,7 @@ interface GridCellProperties {
   rainfall?: number;
   population?: number;
   elevation?: number;
+  province?: string; // New property for province name
 }
 
 interface ProvinceProperties {
@@ -69,6 +70,7 @@ const FitBoundsToData: React.FC<{
   return null;
 };
 
+
 const Map: React.FC = () => {
   const router = useRouter();
   const [gridData, setGridData] = useState<GridFeatureCollection | null>(null);
@@ -78,18 +80,22 @@ const Map: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [hoveredCellId, setHoveredCellId] = useState<string | null>(null);
   
-  // New state for time-based visualization
+  // State for time-based visualization
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [dateIndex, setDateIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
 
-  // Load data
+  // Enhanced grid data with province information
+  const [enhancedGridData, setEnhancedGridData] = useState<GridFeatureCollection | null>(null);
+
+  // Load data with performance improvements
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
   
+        // Use Promise.all for parallel fetching
         const [gridResponse, provincesResponse] = await Promise.all([
           fetch('/pakistan-grid-with-predictions.geojson'),
           fetch('/geoBoundaries-PAK-ADM1.geojson'),
@@ -101,26 +107,29 @@ const Map: React.FC = () => {
         const gridJson = await gridResponse.json();
         const provincesJson = await provincesResponse.json();
   
-        // Combine all province geometries into one unified Pakistan boundary
-        const multiFeature = turf.combine(provincesJson); // combine into one MultiPolygon
-        const [first, ...rest] = multiFeature.features;
+        // Store the raw provinces data for rendering the province boundaries
+        setProvincesData(provincesJson);
   
+        // Combine all province geometries into one unified Pakistan boundary for clipping
+        const multiFeature = turf.combine(provincesJson);
+        const [first, ...rest] = multiFeature.features;
         const pakistanBoundary = rest.reduce(
           (acc, curr) => turf.union(acc, curr),
           first
         );
   
-        // Filter grid cells that intersect with Pakistan boundary
+        // Filter grid cells that intersect with Pakistan boundary for performance
         const filteredFeatures = gridJson.features.filter((feature: GridFeature) =>
           turf.booleanIntersects(turf.polygon(feature.geometry.coordinates), pakistanBoundary)
         );
   
+        // Create a cleaned grid collection with only relevant features
         const clippedGridJson: GridFeatureCollection = {
           ...gridJson,
           features: filteredFeatures,
         };
   
-        // Extract all available dates from the first cell with risk_by_day data
+        // Extract available dates
         if (clippedGridJson.features.length > 0) {
           const firstCellWithDates = clippedGridJson.features.find(
             (feature) => feature.properties?.risk_by_day && Object.keys(feature.properties.risk_by_day).length > 0
@@ -135,8 +144,14 @@ const Map: React.FC = () => {
           }
         }
         
+        // Set raw grid data first to get the UI rendering quickly
         setGridData(clippedGridJson);
-        setProvincesData(provincesJson);
+        
+        // Process the grid data to add province information (does not block UI rendering)
+        setTimeout(() => {
+          processGridDataWithProvinces(clippedGridJson, provincesJson);
+        }, 100);
+        
         setLoading(false);
       } catch (error) {
         console.error('Error loading data:', error);
@@ -147,6 +162,55 @@ const Map: React.FC = () => {
   
     fetchData();
   }, []);
+
+  // Process grid data to add province information
+  const processGridDataWithProvinces = (
+    gridData: GridFeatureCollection, 
+    provincesData: ProvinceFeatureCollection
+  ) => {
+    // Create a worker or use chunked processing to avoid blocking the main thread
+    const enhancedFeatures = gridData.features.map((feature: GridFeature) => {
+      // Create a point from the center of the grid cell
+      const center = turf.center(feature);
+      
+      // Find which province this point falls within
+      let province = 'Unknown';
+      for (const provinceFeature of provincesData.features) {
+        if (turf.booleanPointInPolygon(center, provinceFeature)) {
+          province = provinceFeature.properties.name;
+          break;
+        }
+      }
+      
+      // Clone feature and add province information
+      const enhancedFeature = {...feature};
+      enhancedFeature.properties = {...feature.properties, province};
+      
+      // Clean up risk levels - ensure only Low, Medium, High exist
+      // (convert "Very High" to "High" if present)
+      if (enhancedFeature.properties.risk === 'Very High') {
+        enhancedFeature.properties.risk = 'High';
+      }
+      
+      // Do the same for daily risks
+      if (enhancedFeature.properties.risk_by_day) {
+        Object.keys(enhancedFeature.properties.risk_by_day).forEach(date => {
+          if (enhancedFeature.properties.risk_by_day[date].risk === 'Very High') {
+            enhancedFeature.properties.risk_by_day[date].risk = 'High';
+          }
+        });
+      }
+      
+      return enhancedFeature;
+    });
+    
+    const enhancedGridData: GridFeatureCollection = {
+      ...gridData,
+      features: enhancedFeatures
+    };
+    
+    setEnhancedGridData(enhancedGridData);
+  };
 
   // Animation loop for time-based visualization
   useEffect(() => {
@@ -186,6 +250,21 @@ const Map: React.FC = () => {
     dashArray: '3, 5'
   };
   
+  // Get color based on risk level - using correct color mapping
+  const getRiskColor = (risk?: string) => {
+    switch (risk) {
+      case 'High':
+        return '#dc2626'; // Red for High risk
+      case 'Medium':
+        return '#ea580c'; // Orange for Medium risk
+      case 'Low': 
+        return '#16a34a'; // Green for Low risk
+      default:
+        return '#94a3b8'; // Gray for unknown risk
+    }
+  };
+  
+  // Grid cell style function with corrected color mappings
   const getGridCellStyle = (feature: GridFeature) => {
     // If we have a selected date, use that day's risk level
     let risk = feature.properties?.risk; // Default to overall risk
@@ -194,9 +273,8 @@ const Map: React.FC = () => {
       risk = feature.properties.risk_by_day[selectedDate].risk;
     }
     
-    // SWAP MODERATE AND LOW RISK LEVELS
-    if (risk === 'Medium') risk = 'Low';
-    else if (risk === 'Low') risk = 'Medium';
+    // Ensure risk is only High, Medium, or Low
+    if (risk === 'Very High') risk = 'High';
     
     const isHovered = hoveredCellId === feature.properties.id;
     const isSelected = selectedCell?.properties.id === feature.properties.id;
@@ -209,95 +287,125 @@ const Map: React.FC = () => {
       fillOpacity: isHovered ? 0.75 : 0.65
     };
   
-    // Risk-based colors (after swap)
-    switch (risk) {
-      case 'Very High':
-        return {
-          ...baseStyle,
-          fillColor: '#7f1d1d', // Very dark red
-          fillOpacity: isHovered ? 0.9 : 0.8
-        };
-      case 'High':
-        return {
-          ...baseStyle,
-          fillColor: '#dc2626', // Red
-          fillOpacity: isHovered ? 0.85 : 0.7
-        };
-      case 'Medium': // Now shows what was previously Low risk
-        return {
-          ...baseStyle,
-          fillColor: '#ea580c', // Green (previously Low risk color)
-          fillOpacity: isHovered ? 0.8 : 0.65
-        };
-      case 'Low': // Now shows what was previously Medium risk
-        return {
-          ...baseStyle,
-          fillColor: '#16a34a', // Orange (previously Medium risk color)
-          fillOpacity: isHovered ? 0.75 : 0.6
-        };
-      default:
-        return {
-          ...baseStyle,
-          fillColor: '#94a3b8', // Gray
-          fillOpacity: isHovered ? 0.5 : 0.2
-        };
-    }
+    return {
+      ...baseStyle,
+      fillColor: getRiskColor(risk),
+      fillOpacity: isHovered ? 0.9 : 0.7
+    };
   };
   
   const onEachGridCell = (feature: GridFeature, layer: any) => {
-    layer.on({
-      mouseover: (e: LeafletMouseEvent) => {
-        setHoveredCellId(feature.properties.id);
-        
-        // Get date-specific risk if available
-        let risk = feature.properties.risk;
-        let probability = feature.properties.prediction;
-        
-        if (selectedDate && feature.properties.risk_by_day && feature.properties.risk_by_day[selectedDate]) {
-          risk = feature.properties.risk_by_day[selectedDate].risk;
-          probability = feature.properties.risk_by_day[selectedDate].probability;
-        }
-        
-        const tooltipContent = `
-          <div class="custom-tooltip">
-            <div class="tooltip-header">${feature.properties.id}</div>
-            <div class="tooltip-date">${selectedDate || 'Overall'}</div>
-            <div class="tooltip-risk">
-              <span class="risk-indicator ${getRiskClass(risk)}"></span>
-              ${risk || 'Unknown'} Risk
-            </div>
-            ${probability !== null ? `<div class="tooltip-probability">Probability: ${(probability * 100).toFixed(1)}%</div>` : ''}
-            <div class="tooltip-data">
-              ${feature.properties.rainfall ? `<div>Rainfall: ${feature.properties.rainfall}mm</div>` : ''}
-              ${feature.properties.population ? `<div>Population: ${feature.properties.population?.toLocaleString()}</div>` : ''}
-            </div>
-          </div>
-        `;
-        
-        layer.bindTooltip(tooltipContent, {
-          permanent: false,
-          direction: 'top',
-          className: 'custom-leaflet-tooltip'
-        }).openTooltip();
-      },
-      mouseout: (e: LeafletMouseEvent) => {
-        setHoveredCellId(null);
-        layer.closeTooltip();
-      },
-      click: (e: LeafletMouseEvent) => {
-        setSelectedCell(feature);
-        e.originalEvent?.stopPropagation();
-      }
-    });
-  };
+  layer.on({
+    mouseover: (e: LeafletMouseEvent) => {
+      const latlng = e.latlng;
+      setHoveredCellId(feature.properties.id);
 
+      // Get risk data
+      let risk = feature.properties.risk;
+      let probability = feature.properties.prediction;
+      
+      if (selectedDate && feature.properties.risk_by_day?.[selectedDate]) {
+        risk = feature.properties.risk_by_day[selectedDate].risk;
+        probability = feature.properties.risk_by_day[selectedDate].probability;
+      }
+
+      // PROVINCE DETECTION - SPECIFIC TO geoBoundaries-PAK-ADM1
+      let provinceName = 'Pakistan';
+      if (provincesData) {
+        const point = turf.point([latlng.lng, latlng.lat]);
+        
+        for (const province of provincesData.features) {
+          try {
+            // geoBoundaries files use 'shapeName' for province names
+            if (turf.booleanPointInPolygon(point, province)) {
+              provinceName = province.properties?.shapeName || 
+                            province.properties?.shapeName_1 || 
+                            'Pakistan';
+              break;
+            }
+          } catch (error) {
+            console.error('Province detection error:', error);
+          }
+        }
+      }
+
+      // Tooltip with province info
+      const tooltipContent = `
+        <div class="custom-tooltip">
+          <div class="tooltip-header">${feature.properties.id}</div>
+          <div class="tooltip-province">${provinceName}</div>
+          ${selectedDate ? `<div class="tooltip-date">${formatDate(selectedDate)}</div>` : ''}
+          <div class="tooltip-risk">
+            <span class="risk-indicator ${getRiskClass(risk)}"></span>
+            ${risk || 'Unknown'} Risk
+          </div>
+          ${probability !== null ? `
+            <div class="tooltip-probability">Probability: ${(probability * 100).toFixed(1)}%</div>
+          ` : ''}
+        </div>
+      `;
+
+      layer.bindTooltip(tooltipContent, {
+        permanent: false,
+        direction: 'top',
+        className: 'custom-leaflet-tooltip'
+      }).openTooltip();
+
+      // Highlight the cell
+      layer.setStyle({
+        weight: 2,
+        opacity: 1,
+        color: '#2563eb',
+        fillOpacity: 0.9
+      });
+      layer.bringToFront();
+    },
+    mouseout: () => {
+      setHoveredCellId(null);
+      layer.closeTooltip();
+      layer.setStyle(getGridCellStyle(feature));
+    },
+    click: (e: LeafletMouseEvent) => {
+      // Find the province for this cell
+      let provinceName = 'Pakistan';
+      if (provincesData) {
+        // Calculate center of the feature for consistent province detection
+        const center = turf.center(feature);
+        
+        for (const province of provincesData.features) {
+          try {
+            if (turf.booleanPointInPolygon(center, province)) {
+              provinceName = province.properties?.shapeName || 
+                             province.properties?.shapeName_1 || 
+                             'Pakistan';
+              break;
+            }
+          } catch (error) {
+            console.error('Province detection error:', error);
+          }
+        }
+      }
+      
+      // Create a copy of the feature with province information
+      const enrichedFeature = {
+        ...feature,
+        properties: {
+          ...feature.properties,
+          province: provinceName
+        }
+      };
+      
+      // Set the enhanced feature as selected cell
+      setSelectedCell(enrichedFeature);
+      e.originalEvent?.stopPropagation();
+    }
+  });
+};
   const getRiskClass = (risk?: string) => {
-    // Swap Medium and Low risk classes
-    if (risk === 'Medium') risk = 'Low';
-    else if (risk === 'Low') risk = 'Medium';
+    // Normalize risk levels
+    if (risk === 'Very High') risk = 'High';
     
     switch (risk) {
-      case 'Very High': return 'risk-very-high';
       case 'High': return 'risk-high';
       case 'Medium': return 'risk-medium';
       case 'Low': return 'risk-low';
@@ -306,25 +414,35 @@ const Map: React.FC = () => {
   };
 
   // Navigate to cell detail page with the selected cell data
-  const navigateToCellDetail = () => {
-    if (!selectedCell) return;
-    
-    // Prepare data to be passed to the detailed view
-    const cellData = {
-      id: selectedCell.properties.id,
-      properties: selectedCell.properties,
-      geometry: selectedCell.geometry,
-      // Include currently selected date if relevant
-      selectedDate: selectedDate || null
-    };
-    
-    // Encode the data as a URI component
-    const encodedData = encodeURIComponent(JSON.stringify(cellData));
-    
-    // Navigate to the cell page with the encoded data
-    router.push(`/cell/${selectedCell.properties.id}?data=${encodedData}`);
-  };
+  // In your map component's navigateToCellDetail function:
+const navigateToCellDetail = () => {
+  if (!selectedCell) return;
+  
+  // Get the province name dynamically (same method as in onEachGridCell)
+  let provinceName = 'Pakistan';
+  if (selectedCell && provincesData) {
+    const center = turf.center(selectedCell);
+    for (const province of provincesData.features) {
+      if (turf.booleanPointInPolygon(center, province)) {
+        provinceName = province.properties?.shapeName || 'Pakistan';
+        break;
+      }
+    }
+  }
 
+  const cellData = {
+    id: selectedCell.properties.id,
+    properties: {
+      ...selectedCell.properties,
+      province: provinceName, // Add the province name here
+    },
+    geometry: selectedCell.geometry,
+    selectedDate: selectedDate || null
+  };
+  
+  const encodedData = encodeURIComponent(JSON.stringify(cellData));
+  router.push(`/cell/${selectedCell.properties.id}?data=${encodedData}`);
+};
   // Handle map click to clear selection
   const handleMapClick = () => {
     setSelectedCell(null);
@@ -356,6 +474,11 @@ const Map: React.FC = () => {
       day: 'numeric' 
     });
   };
+
+  // Use enhanced grid data if available, otherwise use the original grid data
+  const displayGridData = useMemo(() => {
+    return enhancedGridData || gridData;
+  }, [enhancedGridData, gridData]);
 
   // Fix for Next.js hydration issues with Leaflet
   const [isMounted, setIsMounted] = useState(false);
@@ -486,6 +609,7 @@ const Map: React.FC = () => {
         scrollWheelZoom={true}
         className="w-full h-full bg-slate-100"
         onClick={handleMapClick}
+        preferCanvas={true} // Use Canvas renderer for better performance
       >
         {/* Better styled tile layer */}
         <TileLayer
@@ -513,9 +637,9 @@ const Map: React.FC = () => {
           />
         )}
         
-        {gridData && (
+        {displayGridData && (
           <GeoJSON 
-            data={gridData} 
+            data={displayGridData} 
             style={getGridCellStyle}
             onEachFeature={onEachGridCell}
             key={selectedDate} // Force re-render when date changes
@@ -540,13 +664,22 @@ const Map: React.FC = () => {
             </button>
           </div>
           
+          {/* Province information */}
+          <div className="bg-slate-700 text-white px-4 py-2">
+            <div className="flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+              </svg>
+              <span className="font-medium">{selectedCell.properties.province || 'Unknown Province'}</span>
+            </div>
+          </div>
+          
           {/* Risk level banner - use the day-specific risk if available */}
           {selectedDate && selectedCell.properties.risk_by_day && selectedCell.properties.risk_by_day[selectedDate] ? (
             <div className={`px-4 py-2 ${
-              selectedCell.properties.risk_by_day[selectedDate].risk === 'Very High' ? 'bg-red-800' :
               selectedCell.properties.risk_by_day[selectedDate].risk === 'High' ? 'bg-red-600' : 
-              selectedCell.properties.risk_by_day[selectedDate].risk === 'Medium' ? 'bg-green-600' : 
-              'bg-orange-600'} text-white`}>
+              selectedCell.properties.risk_by_day[selectedDate].risk === 'Medium' ? 'bg-orange-600' : 
+              'bg-green-600'} text-white`}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
@@ -565,10 +698,9 @@ const Map: React.FC = () => {
             </div>
           ) : (
             <div className={`px-4 py-2 ${
-              selectedCell.properties.risk === 'Very High' ? 'bg-red-800' :
-              selectedCell.properties.risk === 'High' ? 'bg-red-600' : 
-              selectedCell.properties.risk === 'Medium' ? 'bg-green-600' : 
-              'bg-orange-600'} text-white`}>
+              selectedCell.properties.risk === 'High' ? 'bg-red-600' :
+              selectedCell.properties.risk === 'Medium' ? 'bg-orange-600' : 
+              'bg-green-600'} text-white`}>
               <div className="flex items-center">
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
@@ -587,6 +719,7 @@ const Map: React.FC = () => {
                   <div className="text-xs text-slate-500 uppercase font-medium">Rainfall</div>
                   <div className="text-lg font-semibold text-slate-800">{selectedCell.properties.rainfall} mm</div>
                 </div>
+                
               )}
               {selectedCell.properties.elevation !== undefined && (
                 <div className="bg-slate-50 p-3 rounded">
@@ -615,14 +748,11 @@ const Map: React.FC = () => {
   .map((date) => {
     let risk = selectedCell.properties.risk_by_day[date].risk;
     // Swap Medium and Low risk colors
-    if (risk === 'Medium') risk = 'Low';
-    else if (risk === 'Low') risk = 'Medium';
-    
+   
     const colorClass = 
-      risk === 'Very High' ? 'bg-red-800' :
       risk === 'High' ? 'bg-red-600' : 
-      risk === 'Medium' ? 'bg-green-500' : // Now green (was Low)
-      risk === 'Low' ? 'bg-orange-500' :  // Now orange (was Medium)
+      risk === 'Medium' ? 'bg-orange-500' : // Now green (was Low)
+      risk === 'Low' ? 'bg-green-500' :  // Now orange (was Medium)
       'bg-gray-300';
     
     return (
@@ -704,11 +834,11 @@ const Map: React.FC = () => {
           border-radius: 50%;
           margin-right: 6px;
         }
-        .risk-very-high { background: #7f1d1d; }
-        .risk-high { background: #dc2626; }
-        .risk-medium { background: #16a34a; } /* Now green (previously Low) */
-        .risk-low { background: #ea580c; }
+        .risk-high { background: #dc2626; } /* Red for High risk */
+        .risk-medium { background: #ea580c; } /* Orange for Medium risk */
+        .risk-low { background: #16a34a; } /* Green for Low risk */
         .risk-unknown { background: #9ca3af; }
+
 
         .tooltip-data div {
           font-size: 11px;

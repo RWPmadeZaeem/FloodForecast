@@ -3,9 +3,8 @@ const Legend = () => {
     const getRiskColorClass = (risk?: string) => {
         switch (risk) {
           case 'High': return 'bg-red-600';
-          case 'Moderate': return 'bg-orange-600';
+          case 'Medium': return 'bg-orange-600';
           case 'Low': return 'bg-green-600';
-          default: return 'bg-slate-400';
         }
     };
     return (
@@ -14,7 +13,7 @@ const Legend = () => {
           <h3 className="font-medium text-sm">Risk Legend</h3>
         </div>
         <div className="p-3">
-          {['High', 'Moderate', 'Low', 'Unknown'].map((level) => (
+          {['High', 'Medium','Low'].map((level) => (
             <div key={level} className="flex items-center mb-2 last:mb-0">
               <div className={`w-4 h-4 mr-2 rounded ${getRiskColorClass(level)}`}></div>
               <span className="text-sm text-slate-800">{level} Risk</span>
