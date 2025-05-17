@@ -3,12 +3,24 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { FaEnvelope, FaPhone, FaLock } from "react-icons/fa";
+import { FaEnvelope, FaPhone, FaLock, FaMapMarkerAlt } from "react-icons/fa";
+
+// List of Pakistani provinces
+const PAKISTANI_PROVINCES = [
+  "Punjab",
+  "Sindh",
+  "Khyber Pakhtunkhwa",
+  "Balochistan",
+  "Gilgit-Baltistan",
+  "Azad Jammu and Kashmir",
+  "Islamabad Capital Territory"
+];
 
 export default function Signup() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [province, setProvince] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("error"); // "error" or "success"
@@ -19,6 +31,14 @@ export default function Signup() {
     setLoading(true);
     setMessage("");
 
+    // Validate province selection
+    if (!province) {
+      setMessageType("error");
+      setMessage("Please select your province");
+      setLoading(false);
+      return;
+    }
+
     try {
       // 1. Sign up the user with Supabase Auth
       const { data, error } = await supabase.auth.signUp({ 
@@ -26,7 +46,8 @@ export default function Signup() {
         password,
         options: {
           data: {
-            phone: phone // Store phone in user metadata for easy access
+            phone, // Store phone in user metadata
+            province // Also store province in user metadata
           }
         }
       });
@@ -38,7 +59,8 @@ export default function Signup() {
         .from("users")
         .insert([{ // Use the auth user ID as the primary key
           email, 
-          phone 
+          phone,
+          province
         }]);
 
       if (dbError) throw dbError;
@@ -131,6 +153,28 @@ export default function Signup() {
                   placeholder="Password (min 6 characters)"
                   minLength={6}
                 />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="province" className="sr-only">Province</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <FaMapMarkerAlt className="h-5 w-5 text-zinc-400" />
+                </div>
+                <select
+                  id="province"
+                  name="province"
+                  required
+                  value={province}
+                  onChange={(e) => setProvince(e.target.value)}
+                  className="appearance-none rounded-lg relative block w-full pl-10 py-3 px-3 border border-zinc-300 placeholder-zinc-500 text-zinc-900 focus:outline-none focus:ring-orange-500 focus:border-orange-500"
+                >
+                  <option value="">Select your province</option>
+                  {PAKISTANI_PROVINCES.map((prov) => (
+                    <option key={prov} value={prov}>{prov}</option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
