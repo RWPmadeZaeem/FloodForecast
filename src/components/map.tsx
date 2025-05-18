@@ -4,22 +4,20 @@
 "use client"
 
 import { useState, useEffect, useMemo } from 'react';
-import { MapContainer, TileLayer, GeoJSON, useMap, ZoomControl } from 'react-leaflet';
-
+import { MapContainer, TileLayer, GeoJSON, useMap, ZoomControl, useMapEvents } from 'react-leaflet';
+import { FeatureCollection, Feature, Polygon } from 'geojson';
 import { LeafletMouseEvent } from 'leaflet';
 import { useRouter } from 'next/navigation';
 import 'leaflet/dist/leaflet.css';
-
-
+import * as turf from '@turf/turf';
 import Legend from './legend';
 import * as L from 'leaflet';
-
-
-import { FeatureCollection, Feature, Polygon, Geometry, GeoJsonProperties } from 'geojson';
-import * as turf from '@turf/turf';
 import booleanIntersects from '@turf/boolean-intersects';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+
+// Add these imports at the top of your file
 import { PathOptions } from 'leaflet';
+import { Geometry } from 'geojson';
 
 // Define TypeScript interfaces for our data structure
 interface DailyRisk {
@@ -83,22 +81,22 @@ const FitBoundsToData: React.FC<{
   return null;
 };
 
-
-const MapClickHandler: React.FC<{ onClick: () => void }> = ({ onClick }) => {
-  const map = useMap();
-  
-  useEffect(() => {
-    map.on('click', onClick);
-    
-    return () => {
-      map.off('click', onClick);
-    };
-  }, [map, onClick]);
-  
+// Component to handle map clicks
+// Component to handle map clicks
+const MapClickHandler: React.FC<{
+  onMapClick: () => void;
+}> = ({ onMapClick }) => {
+  useMapEvents({
+    click: (e) => {
+      // Only clear selection if the click was directly on the map
+      // and not on a layer (like grid cells)
+      if (e.originalEvent.target === e.target.getContainer()) {
+        onMapClick();
+      }
+    },
+  });
   return null;
 };
-
-
 
 const Map: React.FC = () => {
   const router = useRouter();
@@ -118,79 +116,117 @@ const Map: React.FC = () => {
   // Enhanced grid data with province information
   const [enhancedGridData, setEnhancedGridData] = useState<GridFeatureCollection | null>(null);
 
+  const [isGridLoaded, setIsGridLoaded] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+
   // Load data with performance improvements
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-  
-        // Use Promise.all for parallel fetching
-        const [gridResponse, provincesResponse] = await Promise.all([
-          fetch('/pakistan-grid-with-predictions.geojson'),
-          fetch('/geoBoundaries-PAK-ADM1.geojson'),
-        ]);
-  
-        if (!gridResponse.ok) throw new Error('Failed to load grid data');
-        if (!provincesResponse.ok) throw new Error('Failed to load province data');
-  
-        const gridJson = await gridResponse.json();
-        const provincesJson = await provincesResponse.json();
-  
-        // Store the raw provinces data for rendering the province boundaries
-        setProvincesData(provincesJson);
-  
-        // Combine all province geometries into one unified Pakistan boundary for clipping
-        const multiFeature = turf.combine(provincesJson);
-        const [first, ...rest] = multiFeature.features;
-        const pakistanBoundary = rest.reduce(
-          (acc, curr) => turf.union(acc, curr),
-          first
-        );
-  
-        // Filter grid cells that intersect with Pakistan boundary for performance
-        const filteredFeatures = gridJson.features.filter((gridFeature: GridFeature) =>
-          booleanIntersects(turf.polygon(gridFeature.geometry.coordinates), pakistanBoundary)
-        );
-  
-        // Create a cleaned grid collection with only relevant features
-        const clippedGridJson: GridFeatureCollection = {
-          ...gridJson,
-          features: filteredFeatures,
-        };
-  
-        // Extract available dates
-        if (clippedGridJson.features.length > 0) {
-          const firstCellWithDates = clippedGridJson.features.find(
-            (feature) => feature.properties?.risk_by_day && Object.keys(feature.properties.risk_by_day).length > 0
-          );
+ useEffect(() => {
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+
+      // Load provinces first (smaller file)
+      const provincesResponse = await fetch('/geoBoundaries-PAK-ADM1.geojson');
+      if (!provincesResponse.ok) throw new Error('Failed to load province data');
+      const provincesJson = await provincesResponse.json();
+      setProvincesData(provincesJson);
+      setLoadingProgress(25);
+
+      // Show provinces immediately while grid loads
+      
+      // Load grid data with progress tracking
+      const gridResponse = await fetch('/pakistan-grid-with-predictions.geojson');
+      if (!gridResponse.ok) throw new Error('Failed to load grid data');
+      
+      setLoadingProgress(50);
+      
+      // Use streaming to process the large file
+      const reader = gridResponse.body?.getReader();
+      const contentLength = +(gridResponse.headers.get('Content-Length') ?? 0);
+      let receivedLength = 0;
+      const chunks = [];
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
           
-          if (firstCellWithDates && firstCellWithDates.properties.risk_by_day) {
-            const dates = Object.keys(firstCellWithDates.properties.risk_by_day).sort();
-            setAvailableDates(dates);
-            if (dates.length > 0) {
-              setSelectedDate(dates[0]);
-            }
+          chunks.push(value);
+          receivedLength += value.length;
+          
+          // Update progress
+          if (contentLength > 0) {
+            setLoadingProgress(50 + (receivedLength / contentLength) * 30);
           }
         }
-        
-        // Set raw grid data first to get the UI rendering quickly
-        setGridData(clippedGridJson);
-        
-        // Process the grid data to add province information (does not block UI rendering)
-        setTimeout(() => {
-          processGridDataWithProvinces(clippedGridJson, provincesJson);
-        }, 100);
-        
-        setLoading(false);
-      } catch (error) {
-        console.error('Error loading data:', error);
-        setError((error as Error).message);
-        setLoading(false);
       }
-    };
-  
-    fetchData();
-  }, []);
+
+      setLoadingProgress(80);
+
+      // Combine chunks and parse
+      const chunksAll = new Uint8Array(receivedLength);
+      let position = 0;
+      for (const chunk of chunks) {
+        chunksAll.set(chunk, position);
+        position += chunk.length;
+      }
+
+      const gridText = new TextDecoder().decode(chunksAll);
+      const gridJson = JSON.parse(gridText);
+      
+      setLoadingProgress(90);
+
+      // Process data (same as before but with progress updates)
+      const multiFeature = turf.combine(provincesJson);
+      const [first, ...rest] = multiFeature.features;
+      const pakistanBoundary = rest.reduce(
+        (acc, curr) => turf.union(acc, curr),
+        first
+      );
+
+      const filteredFeatures = gridJson.features.filter((feature: GridFeature) =>
+        booleanIntersects(turf.polygon(feature.geometry.coordinates), pakistanBoundary)
+      );
+
+      const clippedGridJson: GridFeatureCollection = {
+        ...gridJson,
+        features: filteredFeatures,
+      };
+
+      // Extract dates
+      if (clippedGridJson.features.length > 0) {
+        const firstCellWithDates = clippedGridJson.features.find(
+          (feature) => feature.properties?.risk_by_day && Object.keys(feature.properties.risk_by_day).length > 0
+        );
+        
+        if (firstCellWithDates && firstCellWithDates.properties.risk_by_day) {
+          const dates = Object.keys(firstCellWithDates.properties.risk_by_day).sort();
+          setAvailableDates(dates);
+          if (dates.length > 0) {
+            setSelectedDate(dates[0]);
+          }
+        }
+      }
+
+      setGridData(clippedGridJson);
+      setIsGridLoaded(true);
+      setLoadingProgress(100);
+      setLoading(false);
+
+      // Process province data in background
+      setTimeout(() => {
+        processGridDataWithProvinces(clippedGridJson, provincesJson);
+      }, 100);
+
+    } catch (error) {
+      console.error('Error loading data:', error);
+      setError((error as Error).message);
+      setLoading(false);
+    }
+  };
+
+  fetchData();
+}, []);
 
   // Process grid data to add province information
   const processGridDataWithProvinces = (
@@ -206,7 +242,7 @@ const Map: React.FC = () => {
       // Find which province this point falls within
       let province = 'Unknown';
       for (const provinceFeature of provincesData.features) {
-        if (booleanPointInPolygon(center, provinceFeature)) {
+        if (booleanPointInPolygon(center, turf.feature(provinceFeature.geometry, provinceFeature.properties))) {
           province = provinceFeature.properties.name;
           break;
         }
@@ -295,10 +331,10 @@ const Map: React.FC = () => {
   };
   
   // Grid cell style function with corrected color mappings
-  const getGridCellStyle = (feature: Feature<Geometry, any> | undefined): PathOptions => {
-  // Add a check for undefined
-  if (!feature) {
-    // Return a default style for undefined features
+  // Update your getGridCellStyle function to handle undefined cases
+const getGridCellStyle = (feature?: Feature<Geometry, any>): PathOptions => {
+  // Default style for undefined or invalid features
+  if (!feature || !feature.properties) {
     return {
       weight: 0.5,
       opacity: 0.7,
@@ -308,29 +344,26 @@ const Map: React.FC = () => {
     };
   }
 
-  // Type cast to your GridFeature type for specific properties
+  // Type guard to ensure it's a GridFeature
   const gridFeature = feature as GridFeature;
   
-  // Rest of your function remains the same...
+  // If we have a selected date, use that day's risk level
   let risk = gridFeature.properties?.risk; // Default to overall risk
   
-  if (selectedDate && gridFeature.properties?.risk_by_day && 
-      gridFeature.properties.risk_by_day[selectedDate]) {
+  if (selectedDate && gridFeature.properties?.risk_by_day && gridFeature.properties.risk_by_day[selectedDate]) {
     risk = gridFeature.properties.risk_by_day[selectedDate].risk;
   }
+  
+  // Ensure risk is only High, Medium, or Low
+  if (risk === 'Very High') risk = 'High';
   
   const isHovered = hoveredCellId === gridFeature.properties.id;
   const isSelected = selectedCell?.properties.id === gridFeature.properties.id;
   
-  const baseStyle = {
+  return {
     weight: isHovered || isSelected ? 2 : 0.5,
     opacity: isHovered || isSelected ? 1 : 0.7,
     color: isHovered || isSelected ? '#2563eb' : '#9ca3af',
-    fillOpacity: isHovered ? 0.75 : 0.65
-  };
-
-  return {
-    ...baseStyle,
     fillColor: getRiskColor(risk),
     fillOpacity: isHovered ? 0.9 : 0.7
   };
@@ -413,7 +446,6 @@ const Map: React.FC = () => {
       if (provincesData) {
         // Calculate center of the feature for consistent province detection
         const center = turf.center(turf.featureCollection([feature]));
-
         
         for (const province of provincesData.features) {
           try {
@@ -464,7 +496,8 @@ const navigateToCellDetail = () => {
   // Get the province name dynamically (same method as in onEachGridCell)
   let provinceName = 'Pakistan';
   if (selectedCell && provincesData) {
-    const center = turf.center(turf.featureCollection([selectedCell]));
+    const featureCollection = turf.featureCollection([selectedCell]);
+    const center = turf.center(featureCollection);
     for (const province of provincesData.features) {
       if (booleanPointInPolygon(center, province)) {
         provinceName = province.properties?.shapeName || 'Pakistan';
@@ -546,15 +579,36 @@ const navigateToCellDetail = () => {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-slate-50">
-        <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mb-2"></div>
-          <p className="text-slate-700">Loading map data...</p>
+  return (
+    <div className="flex items-center justify-center h-screen bg-slate-50">
+      <div className="text-center max-w-md">
+        <div className="mb-6">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
         </div>
+        
+        <div className="mb-4">
+          <div className="w-64 bg-gray-200 rounded-full h-2.5">
+            <div 
+              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+              style={{ width: `${loadingProgress}%` }}
+            ></div>
+          </div>
+        </div>
+        
+        <p className="text-slate-700 mb-2">
+          {loadingProgress < 25 ? 'Loading provinces...' :
+           loadingProgress < 80 ? 'Loading flood risk data...' :
+           loadingProgress < 100 ? 'Processing data...' :
+           'Almost ready...'}
+        </p>
+        
+        <p className="text-sm text-slate-500">
+          Loading {loadingProgress.toFixed(0)}% complete
+        </p>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   if (error) {
     return (
@@ -639,7 +693,7 @@ const navigateToCellDetail = () => {
       <div className="absolute top-20 right-6 z-[500]">
         <Legend />
       </div>
-
+      
       <MapContainer 
         bounds={PAKISTAN_BOUNDS}
         maxBounds={[
@@ -651,10 +705,10 @@ const navigateToCellDetail = () => {
         zoomControl={false}
         scrollWheelZoom={true}
         className="w-full h-full bg-slate-100"
-      
+        
         preferCanvas={true} // Use Canvas renderer for better performance
       >
-        <MapClickHandler onClick={handleMapClick} />
+        <MapClickHandler onMapClick={handleMapClick} />
         {/* Better styled tile layer */}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -899,5 +953,3 @@ const navigateToCellDetail = () => {
 };
 
 export default Map;
-
-
