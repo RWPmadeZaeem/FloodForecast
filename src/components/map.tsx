@@ -5,13 +5,21 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { MapContainer, TileLayer, GeoJSON, useMap, ZoomControl } from 'react-leaflet';
-import { FeatureCollection, Feature, Polygon } from 'geojson';
+
 import { LeafletMouseEvent } from 'leaflet';
 import { useRouter } from 'next/navigation';
 import 'leaflet/dist/leaflet.css';
-import * as turf from '@turf/turf';
+
+
 import Legend from './legend';
 import * as L from 'leaflet';
+
+
+import { FeatureCollection, Feature, Polygon, Geometry, GeoJsonProperties } from 'geojson';
+import * as turf from '@turf/turf';
+import booleanIntersects from '@turf/boolean-intersects';
+import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+import { PathOptions } from 'leaflet';
 
 // Define TypeScript interfaces for our data structure
 interface DailyRisk {
@@ -76,6 +84,22 @@ const FitBoundsToData: React.FC<{
 };
 
 
+const MapClickHandler: React.FC<{ onClick: () => void }> = ({ onClick }) => {
+  const map = useMap();
+  
+  useEffect(() => {
+    map.on('click', onClick);
+    
+    return () => {
+      map.off('click', onClick);
+    };
+  }, [map, onClick]);
+  
+  return null;
+};
+
+
+
 const Map: React.FC = () => {
   const router = useRouter();
   const [gridData, setGridData] = useState<GridFeatureCollection | null>(null);
@@ -124,8 +148,8 @@ const Map: React.FC = () => {
         );
   
         // Filter grid cells that intersect with Pakistan boundary for performance
-        const filteredFeatures = gridJson.features.filter((feature: GridFeature) =>
-          turf.booleanIntersects(turf.polygon(feature.geometry.coordinates), pakistanBoundary)
+        const filteredFeatures = gridJson.features.filter((gridFeature: GridFeature) =>
+          booleanIntersects(turf.polygon(gridFeature.geometry.coordinates), pakistanBoundary)
         );
   
         // Create a cleaned grid collection with only relevant features
@@ -176,12 +200,13 @@ const Map: React.FC = () => {
     // Create a worker or use chunked processing to avoid blocking the main thread
     const enhancedFeatures = gridData.features.map((feature: GridFeature) => {
       // Create a point from the center of the grid cell
-      const center = turf.center(feature);
+      const center = turf.center(turf.featureCollection([feature]));
+
       
       // Find which province this point falls within
       let province = 'Unknown';
       for (const provinceFeature of provincesData.features) {
-        if (turf.booleanPointInPolygon(center, provinceFeature)) {
+        if (booleanPointInPolygon(center, provinceFeature)) {
           province = provinceFeature.properties.name;
           break;
         }
@@ -270,34 +295,46 @@ const Map: React.FC = () => {
   };
   
   // Grid cell style function with corrected color mappings
-  const getGridCellStyle = (feature: GridFeature) => {
-    // If we have a selected date, use that day's risk level
-    let risk = feature.properties?.risk; // Default to overall risk
-    
-    if (selectedDate && feature.properties?.risk_by_day && feature.properties.risk_by_day[selectedDate]) {
-      risk = feature.properties.risk_by_day[selectedDate].risk;
-    }
-    
-    // Ensure risk is only High, Medium, or Low
-    if (risk === 'Very High') risk = 'High';
-    
-    const isHovered = hoveredCellId === feature.properties.id;
-    const isSelected = selectedCell?.properties.id === feature.properties.id;
-    
-    // Default style
-    const baseStyle = {
-      weight: isHovered || isSelected ? 2 : 0.5,
-      opacity: isHovered || isSelected ? 1 : 0.7,
-      color: isHovered || isSelected ? '#2563eb' : '#9ca3af',
-      fillOpacity: isHovered ? 0.75 : 0.65
-    };
-  
+  const getGridCellStyle = (feature: Feature<Geometry, any> | undefined): PathOptions => {
+  // Add a check for undefined
+  if (!feature) {
+    // Return a default style for undefined features
     return {
-      ...baseStyle,
-      fillColor: getRiskColor(risk),
-      fillOpacity: isHovered ? 0.9 : 0.7
+      weight: 0.5,
+      opacity: 0.7,
+      color: '#9ca3af',
+      fillColor: '#94a3b8',
+      fillOpacity: 0.65
     };
+  }
+
+  // Type cast to your GridFeature type for specific properties
+  const gridFeature = feature as GridFeature;
+  
+  // Rest of your function remains the same...
+  let risk = gridFeature.properties?.risk; // Default to overall risk
+  
+  if (selectedDate && gridFeature.properties?.risk_by_day && 
+      gridFeature.properties.risk_by_day[selectedDate]) {
+    risk = gridFeature.properties.risk_by_day[selectedDate].risk;
+  }
+  
+  const isHovered = hoveredCellId === gridFeature.properties.id;
+  const isSelected = selectedCell?.properties.id === gridFeature.properties.id;
+  
+  const baseStyle = {
+    weight: isHovered || isSelected ? 2 : 0.5,
+    opacity: isHovered || isSelected ? 1 : 0.7,
+    color: isHovered || isSelected ? '#2563eb' : '#9ca3af',
+    fillOpacity: isHovered ? 0.75 : 0.65
   };
+
+  return {
+    ...baseStyle,
+    fillColor: getRiskColor(risk),
+    fillOpacity: isHovered ? 0.9 : 0.7
+  };
+};
   
   const onEachGridCell = (feature: GridFeature, layer: any) => {
   layer.on({
@@ -322,7 +359,7 @@ const Map: React.FC = () => {
         for (const province of provincesData.features) {
           try {
             // geoBoundaries files use 'shapeName' for province names
-            if (turf.booleanPointInPolygon(point, province)) {
+            if (booleanPointInPolygon(point, province)) {
               provinceName = province.properties?.shapeName || 
                             province.properties?.shapeName_1 || 
                             'Pakistan';
@@ -375,11 +412,12 @@ const Map: React.FC = () => {
       let provinceName = 'Pakistan';
       if (provincesData) {
         // Calculate center of the feature for consistent province detection
-        const center = turf.center(feature);
+        const center = turf.center(turf.featureCollection([feature]));
+
         
         for (const province of provincesData.features) {
           try {
-            if (turf.booleanPointInPolygon(center, province)) {
+            if (booleanPointInPolygon(center, province)) {
               provinceName = province.properties?.shapeName || 
                              province.properties?.shapeName_1 || 
                              'Pakistan';
@@ -426,9 +464,9 @@ const navigateToCellDetail = () => {
   // Get the province name dynamically (same method as in onEachGridCell)
   let provinceName = 'Pakistan';
   if (selectedCell && provincesData) {
-    const center = turf.center(selectedCell);
+    const center = turf.center(turf.featureCollection([selectedCell]));
     for (const province of provincesData.features) {
-      if (turf.booleanPointInPolygon(center, province)) {
+      if (booleanPointInPolygon(center, province)) {
         provinceName = province.properties?.shapeName || 'Pakistan';
         break;
       }
@@ -613,9 +651,10 @@ const navigateToCellDetail = () => {
         zoomControl={false}
         scrollWheelZoom={true}
         className="w-full h-full bg-slate-100"
-        onClick={handleMapClick}
+      
         preferCanvas={true} // Use Canvas renderer for better performance
       >
+        <MapClickHandler onClick={handleMapClick} />
         {/* Better styled tile layer */}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
