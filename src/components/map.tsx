@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation';
 import 'leaflet/dist/leaflet.css';
 import * as turf from '@turf/turf';
 import Legend from './legend';
+import * as L from 'leaflet';
 
 // Define TypeScript interfaces for our data structure
 interface DailyRisk {
@@ -33,6 +34,8 @@ interface GridCellProperties {
 
 interface ProvinceProperties {
   name: string;
+  shapeName?: string;
+  shapeName_1?: string;
   [key: string]: unknown;
 }
 
@@ -41,9 +44,9 @@ type GridFeatureCollection = FeatureCollection<Polygon, GridCellProperties>;
 type ProvinceFeatureCollection = FeatureCollection<any, ProvinceProperties>;
 
 // Pakistan's approximate bounds
-const PAKISTAN_BOUNDS: [[number, number], [number, number]] = [
-  [23.5, 60.5], // Southwest corner: latitude, longitude
-  [37.0, 77.5]  // Northeast corner: latitude, longitude
+const PAKISTAN_BOUNDS: L.LatLngBoundsExpression = [
+  [23.5, 60.5],
+  [37.0, 77.5]
 ];
 
 // Component to fit map to bounds
