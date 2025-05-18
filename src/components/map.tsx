@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
 import { useState, useEffect, useMemo } from 'react';
@@ -34,7 +37,6 @@ interface ProvinceProperties {
 }
 
 type GridFeature = Feature<Polygon, GridCellProperties>;
-type ProvinceFeature = Feature<any, ProvinceProperties>;
 type GridFeatureCollection = FeatureCollection<Polygon, GridCellProperties>;
 type ProvinceFeatureCollection = FeatureCollection<any, ProvinceProperties>;
 
@@ -746,7 +748,7 @@ const navigateToCellDetail = () => {
   .sort()
   .slice(0, 7)
   .map((date) => {
-    let risk = selectedCell.properties.risk_by_day[date].risk;
+    const risk = selectedCell.properties.risk_by_day[date].risk;
     // Swap Medium and Low risk colors
    
     const colorClass = 

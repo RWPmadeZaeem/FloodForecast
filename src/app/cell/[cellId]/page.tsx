@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 interface DailyRisk {
@@ -29,10 +29,10 @@ const riskColors: Record<string, string> = {
 };
 
 export default function CellDetailPage() {
-  const params = useParams();
+  
   const searchParams = useSearchParams();
 
-  const cellId = params.cellId as string;
+  
   const encodedData = searchParams.get('data');
 
   const [cellData, setCellData] = useState<GridCellProperties | null>(null);
