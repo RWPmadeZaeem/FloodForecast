@@ -1,33 +1,37 @@
 "use client";
-import { useState } from "react";
+import { useState, FormEvent } from "react";
 import { useAuth } from "@/context/auth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { FaEnvelope, FaLock } from "react-icons/fa";
 
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [email, setEmail] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
   const router = useRouter();
   const { signIn } = useAuth();
 
-  const handleLogin = async (e) => {
+  const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
     try {
-      const { error } = await signIn({ email, password });
+      const { error: signInError } = await signIn({ email, password });
       
-      if (error) throw error;
+      if (signInError) throw signInError;
       
       // Redirect to home page
       router.push("/");
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Login error:", error);
-      setError(error.message);
+      if (error instanceof Error) {
+        setError(error.message);
+      } else {
+        setError("An unknown error occurred");
+      }
     } finally {
       setLoading(false);
     }
@@ -58,7 +62,7 @@ export default function Login() {
                   autoComplete="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
                   className="appearance-none rounded-lg relative block w-full pl-10 py-3 px-3 border border-zinc-300 placeholder-zinc-500 text-zinc-900 focus:outline-none focus:ring-orange-500 focus:border-orange-500"
                   placeholder="Email address"
                 />
@@ -78,7 +82,7 @@ export default function Login() {
                   autoComplete="current-password"
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                   className="appearance-none rounded-lg relative block w-full pl-10 py-3 px-3 border border-zinc-300 placeholder-zinc-500 text-zinc-900 focus:outline-none focus:ring-orange-500 focus:border-orange-500"
                   placeholder="Password"
                 />
