@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, FormEvent, ChangeEvent } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -14,19 +14,22 @@ const PAKISTANI_PROVINCES = [
   "Gilgit-Baltistan",
   "Azad Jammu and Kashmir",
   "Islamabad Capital Territory"
-];
+] as const;
+
+type Province = typeof PAKISTANI_PROVINCES[number];
+type MessageType = "error" | "success";
 
 export default function Signup() {
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-  const [province, setProvince] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState("error"); // "error" or "success"
+  const [email, setEmail] = useState<string>("");
+  const [phone, setPhone] = useState<string>("");
+  const [password, setPassword] = useState<string>("");
+  const [province, setProvince] = useState<Province | "">("");
+  const [loading, setLoading] = useState<boolean>(false);
+  const [message, setMessage] = useState<string>("");
+  const [messageType, setMessageType] = useState<MessageType>("error");
   const router = useRouter();
 
-  const handleSignup = async (e) => {
+  const handleSignup = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setLoading(true);
     setMessage("");
@@ -74,13 +77,34 @@ export default function Signup() {
         router.push("/");
       }, 1500);
       
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Signup error:", error);
       setMessageType("error");
-      setMessage(error.message);
+      setMessage(
+        error instanceof Error ? error.message : "An unknown error occurred"
+      );
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    switch (name) {
+      case "email":
+        setEmail(value);
+        break;
+      case "phone":
+        setPhone(value);
+        break;
+      case "password":
+        setPassword(value);
+        break;
+    }
+  };
+
+  const handleSelectChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    setProvince(e.target.value as Province);
   };
 
   return (
@@ -108,7 +132,7 @@ export default function Signup() {
                   autoComplete="email"
                   required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={handleInputChange}
                   className="appearance-none rounded-lg relative block w-full pl-10 py-3 px-3 border border-zinc-300 placeholder-zinc-500 text-zinc-900 focus:outline-none focus:ring-orange-500 focus:border-orange-500"
                   placeholder="Email address"
                 />
@@ -128,7 +152,7 @@ export default function Signup() {
                   autoComplete="tel"
                   required
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={handleInputChange}
                   className="appearance-none rounded-lg relative block w-full pl-10 py-3 px-3 border border-zinc-300 placeholder-zinc-500 text-zinc-900 focus:outline-none focus:ring-orange-500 focus:border-orange-500"
                   placeholder="Phone number (e.g. +923001234567)"
                 />
@@ -148,7 +172,7 @@ export default function Signup() {
                   autoComplete="new-password"
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={handleInputChange}
                   className="appearance-none rounded-lg relative block w-full pl-10 py-3 px-3 border border-zinc-300 placeholder-zinc-500 text-zinc-900 focus:outline-none focus:ring-orange-500 focus:border-orange-500"
                   placeholder="Password (min 6 characters)"
                   minLength={6}
@@ -167,7 +191,7 @@ export default function Signup() {
                   name="province"
                   required
                   value={province}
-                  onChange={(e) => setProvince(e.target.value)}
+                  onChange={handleSelectChange}
                   className="appearance-none rounded-lg relative block w-full pl-10 py-3 px-3 border border-zinc-300 placeholder-zinc-500 text-zinc-900 focus:outline-none focus:ring-orange-500 focus:border-orange-500"
                 >
                   <option value="">Select your province</option>
