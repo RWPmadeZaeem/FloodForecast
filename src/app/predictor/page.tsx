@@ -1,4 +1,4 @@
-import LeafletMapWrapper from '../../components/LeafletMapWrapper';
+import LeafletMapWrapper from '../../components/leafletmapwrapper';
 
 export default function TestDeck() {
   return (
