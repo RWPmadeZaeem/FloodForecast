@@ -120,63 +120,35 @@ const Map: React.FC = () => {
   const [loadingProgress, setLoadingProgress] = useState(0);
 
   // Load data with performance improvements
- useEffect(() => {
+  useEffect(() => {
   const fetchData = async () => {
     try {
       setLoading(true);
+      
+      // Simulate realistic progress over time
+      const progressInterval = setInterval(() => {
+        setLoadingProgress(prev => {
+          if (prev < 85) return prev + Math.random() * 15 + 5;
+          return prev + Math.random() * 3 + 1;
+        });
+      }, 200);
 
-      // Load provinces first (smaller file)
+      // Load provinces first
       const provincesResponse = await fetch('/geoBoundaries-PAK-ADM1.geojson');
       if (!provincesResponse.ok) throw new Error('Failed to load province data');
       const provincesJson = await provincesResponse.json();
       setProvincesData(provincesJson);
-      setLoadingProgress(25);
 
-      // Show provinces immediately while grid loads
-      
-      // Load grid data with progress tracking
+      // Load grid data
       const gridResponse = await fetch('/pakistan-grid-with-predictions.geojson');
       if (!gridResponse.ok) throw new Error('Failed to load grid data');
-      
-      setLoadingProgress(50);
-      
-      // Use streaming to process the large file
-      const reader = gridResponse.body?.getReader();
-      const contentLength = +(gridResponse.headers.get('Content-Length') ?? 0);
-      let receivedLength = 0;
-      const chunks = [];
+      const gridJson = await gridResponse.json();
 
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          chunks.push(value);
-          receivedLength += value.length;
-          
-          // Update progress
-          if (contentLength > 0) {
-            setLoadingProgress(50 + (receivedLength / contentLength) * 30);
-          }
-        }
-      }
+      // Clear the progress simulation
+      clearInterval(progressInterval);
+      setLoadingProgress(95);
 
-      setLoadingProgress(80);
-
-      // Combine chunks and parse
-      const chunksAll = new Uint8Array(receivedLength);
-      let position = 0;
-      for (const chunk of chunks) {
-        chunksAll.set(chunk, position);
-        position += chunk.length;
-      }
-
-      const gridText = new TextDecoder().decode(chunksAll);
-      const gridJson = JSON.parse(gridText);
-      
-      setLoadingProgress(90);
-
-      // Process data (same as before but with progress updates)
+      // Process data (same as before)
       const multiFeature = turf.combine(provincesJson);
       const [first, ...rest] = multiFeature.features;
       const pakistanBoundary = rest.reduce(
@@ -590,7 +562,7 @@ const navigateToCellDetail = () => {
           <div className="w-64 bg-gray-200 rounded-full h-2.5">
             <div 
               className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
-              style={{ width: `${loadingProgress}%` }}
+              style={{ width: `${Math.min(100, loadingProgress)}%` }}
             ></div>
           </div>
         </div>
@@ -603,12 +575,12 @@ const navigateToCellDetail = () => {
         </p>
         
         <p className="text-sm text-slate-500">
-          Loading {loadingProgress.toFixed(0)}% complete
+          Loading {Math.min(100, Math.round(loadingProgress))}% complete
         </p>
       </div>
     </div>
   );
-}
+  }
 
   if (error) {
     return (
