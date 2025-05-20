@@ -140,7 +140,7 @@ const Map: React.FC = () => {
       setProvincesData(provincesJson);
 
       // Load grid data
-      const gridResponse = await fetch('/pakistan-grid-with-predictions.geojson');
+      const gridResponse = await fetch('/pakistan-grid-with-predictions_1.geojson');
       if (!gridResponse.ok) throw new Error('Failed to load grid data');
       const gridJson = await gridResponse.json();
 
