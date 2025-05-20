@@ -118,7 +118,7 @@ export default function CellDetailPage() {
       </div>
 
       <div className="mb-8">
-        <h2 className="text-2xl font-bold mb-4 text-gray-800">Daily Risk Forecast</h2>
+        <h2 className="text-2xl font-bold mb-4 text-gray-800">Monthly Risk Forecast</h2>
         {cellData.risk_by_day && Object.keys(cellData.risk_by_day).length > 0 ? (
           <div className="overflow-hidden rounded-lg border border-gray-200 shadow-sm">
             <table className="min-w-full divide-y divide-gray-200">
